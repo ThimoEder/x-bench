@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>Viewport</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+        user-select: none;
+      }
+
+      body {
+        display: inline-block;
+        padding: 6px;
+        font: 500 12px/1 system-ui, -apple-system, sans-serif;
+      }
+
+      .badge {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 3px 3px 3px 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 11px;
+        background: rgba(24, 24, 27, 0.55);
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+        color: rgba(255, 255, 255, 0.72);
+        white-space: nowrap;
+        opacity: 0.7;
+        transition: opacity 150ms ease, background 150ms ease;
+      }
+
+      .badge:hover {
+        opacity: 1;
+        background: rgba(24, 24, 27, 0.82);
+      }
+
+      .size {
+        padding-right: 6px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      button {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        height: 24px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.72);
+        font: inherit;
+        cursor: default;
+      }
+
+      button:hover { background: rgba(255, 255, 255, 0.16); color: #ffffff; }
+      button:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.6); outline-offset: -2px; }
+    </style>
+  </head>
+  <body>
+    <div class="badge">
+      <span class="size" title="An agent set this size for the page. It shows shrunk to fit the pane."></span>
+      <button type="button" title="Lay the page out at the pane's own size">
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.75 6V2.75H6M10 2.75h3.25V6M13.25 10v3.25H10M6 13.25H2.75V10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        Fit to pane
+      </button>
+    </div>
+    <script>
+      const size = document.querySelector(".size");
+      document.querySelector("button").addEventListener("click", () => window.viewportBadge.fit());
+      window.viewportBadge.onLabel((label) => {
+        size.textContent = label;
+      });
+      new ResizeObserver(() => {
+        const rect = document.body.getBoundingClientRect();
+        window.viewportBadge.resize(Math.ceil(rect.width), Math.ceil(rect.height));
+      }).observe(document.body);
+    </script>
+  </body>
+</html>

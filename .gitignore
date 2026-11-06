@@ -1,0 +1,9 @@
+node_modules
+dist/
+/release/
+.playwright-mcp/
+.DS_Store
+desktop/devices/sim-helper/build/
+desktop/devices/android-helper/build/
+desktop/unity/unity-view/build/
+.env

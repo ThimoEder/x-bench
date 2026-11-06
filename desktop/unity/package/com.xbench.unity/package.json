@@ -1,0 +1,10 @@
+{
+  "name": "com.xbench.unity",
+  "version": "0.1.0",
+  "displayName": "X Bench",
+  "description": "Shows the Game view in X Bench's Unity tab and takes the touches and keys played there. Needs KlakSyphon (jp.keijiro.klak.syphon) and the Unity Pipeline package (com.unity.pipeline).",
+  "unity": "6000.0",
+  "dependencies": {
+    "com.unity.inputsystem": "1.11.0"
+  }
+}

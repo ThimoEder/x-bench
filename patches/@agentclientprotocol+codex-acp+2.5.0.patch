@@ -1,0 +1,135 @@
+diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+index 2ce28d2..6fabaaa 100755
+--- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
++++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+@@ -39504,7 +39504,7 @@ function normalizeMcpServer(server) {
+     }
+     case "http": {
+       const http = server;
+-      return { type: "http", name: http.name, url: http.url, headers: http.headers ?? [] };
++      return { type: "http", name: http.name, url: http.url, headers: http.headers ?? [], _meta: http._meta };
+     }
+     case "acp":
+       throw RequestError.invalidParams(void 0, "Codex doesn't support MCP ACP transport protocol");
+@@ -39525,7 +39525,9 @@ function toCodexMcpServerConfig(server) {
+     case "http":
+       return {
+         "url": server.url,
+-        "http_headers": Object.fromEntries(server.headers.map((h) => [h.name, h.value]))
++        "http_headers": Object.fromEntries(server.headers.map((h) => [h.name, h.value])),
++        // X Bench: Codex settings for this server from its _meta, such as tools that run without asking.
++        ...(server._meta && typeof server._meta["x-bench/codex"] === "object" ? server._meta["x-bench/codex"] : {})
+       };
+   }
+ }
+@@ -40474,7 +40476,8 @@ var AgentMode = class _AgentMode {
+     {
+       type: "workspaceWrite",
+       writableRoots: [],
+-      networkAccess: false,
++      // X Bench: sandboxed commands reach the board API on 127.0.0.1 without a Guardian Review each.
++      networkAccess: true,
+       excludeTmpdirEnvVar: false,
+       excludeSlashTmp: false
+     },
+@@ -40856,14 +40859,24 @@ import { createHash } from "node:crypto";
+ async function forkSession(request, additionalDirectories, dependencies, instructions) {
+   await dependencies.refreshSkills(request.cwd, additionalDirectories);
+   const lastTurnId = await resolveForkTurnId(request, dependencies.codexClient);
++  const sideQuestion = request._meta?.["x-bench/sideQuestion"] === true;
+   const sessionConfig = await dependencies.createSessionConfig(
+     request.cwd,
+     additionalDirectories,
+     request.mcpServers ?? []
+   );
++  const configuredMcpServers = sideQuestion ? [...await dependencies.getConfigMcpServerNames(request.cwd)] : [];
+   const response = await dependencies.codexClient.threadFork({
+     excludeTurns: true,
+-    config: sessionConfig.config,
++    ...sideQuestion ? {
++      ephemeral: true,
++      // X Bench: a side question gets no MCP tools; plugin servers are not in config, so the plugins feature goes off too.
++      config: {
++        ...sessionConfig.config,
++        "features": { ...sessionConfig.config["features"], "plugins": false },
++        "mcp_servers": Object.fromEntries(configuredMcpServers.map((name) => [name, { "enabled": false }]))
++      }
++    } : { config: sessionConfig.config },
+     cwd: request.cwd,
+     ...lastTurnId !== void 0 && { lastTurnId },
+     modelProvider: await dependencies.getResumeModelProvider(),
+@@ -41611,6 +41624,7 @@ var CodexAcpClient = class _CodexAcpClient {
+       codexClient: this.codexClient,
+       refreshSkills: (cwd, directories) => this.refreshSkills(cwd, directories),
+       createSessionConfig: (cwd, directories, mcpServers) => this.createSessionConfig(cwd, directories, mcpServers),
++      getConfigMcpServerNames: (cwd) => this.getConfigMcpServerNames(cwd),
+       getResumeModelProvider: () => this.getResumeModelProvider(),
+       fetchAvailableModels: () => this.fetchAvailableModels(),
+       createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
+@@ -46664,7 +46678,7 @@ var TitleGenerator = class {
+   }
+   /**
+    * Call when an explicit rename failed. A title that this generator dropped for that rename is generated
+-   * again after the next turn, as if the rename had never come.
++   * again when the next turn starts, as if the rename had never come.
+    */
+   retryAfterFailedRename() {
+     if (!this.droppedForExplicitTitle) return;
+@@ -46682,13 +46696,13 @@ var TitleGenerator = class {
+     this.renameEchoResolve = null;
+   }
+   /**
+-   * Fire-and-forget hook — call after each turn completes.
++   * Fire-and-forget hook — call when each turn starts.
+    * Only acts on the first call for new sessions without an existing title.
+    *
+    * @param userPromptText  The text of the user's first message (from params.prompt,
+    *                        not turn.items — turn.items contains only agent output).
+    */
+-  onTurnCompleted(userPromptText) {
++  onTurnStarted(userPromptText) {
+     if (this.generated) return;
+     const src = this.getSessionTitleSource();
+     if (src === "explicit" || src === "unknown") return;
+@@ -46701,7 +46715,7 @@ var TitleGenerator = class {
+   }
+   /**
+    * Resolves once the fire-and-forget generation started by
+-   * {@link onTurnCompleted} has finished, or after `timeoutMs`.
++   * {@link onTurnStarted} has finished, or after `timeoutMs`.
+    *
+    * Generation renames the thread, which Codex echoes back as a
+    * `session_info_update`. `session/load` has to finish replaying a session
+@@ -50229,14 +50243,14 @@ You have been logged out. Please try again.`);
+       toolCallReports: this.reportingConnection.reports,
+       openToolCalls: new CodexSessionToolCalls()
+     };
+-    sessionState.titleGen = new TitleGenerator(
++    sessionState.titleGen = request._meta?.["x-bench/sideQuestion"] === true ? void 0 : new TitleGenerator(
+       this.codexAcpClient.appServerClient,
+       sessionId,
+       sessionState.cwd,
+       () => sessionState.sessionTitleSource,
+       this.sessionIndex.titleWriter(sessionId)
+     );
+-    sessionState.promptSuggestions = this.createPromptSuggestions(sessionState);
++    sessionState.promptSuggestions = request._meta?.["x-bench/sideQuestion"] === true ? void 0 : this.createPromptSuggestions(sessionState);
+     this.installSessionState(sessionState);
+     AcpV2Connection.of(this.connection)?.restoreForegroundState(sessionId, sessionMetadata.threadStatus?.type === "active");
+     this.recovery?.markLoaded(sessionState, openGeneration);
+@@ -53362,6 +53376,7 @@ You have been logged out. Please try again.`);
+               insertion?.onTurnAdopted?.();
+             }
+             onTurnStarted?.();
++            sessionState.titleGen?.onTurnStarted(params.prompt.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim());
+           },
+           () => this.promptShouldStop(params.sessionId, activePrompt),
+           insertion?.clientUserMessageId
+@@ -53530,7 +53545,6 @@ You have been logged out. Please try again.`);
+         true
+       );
+       const promptText = params.prompt.filter((b) => b.type === "text").map((b) => b.text).join(" ").trim();
+-      sessionState.titleGen?.onTurnCompleted(promptText);
+       sessionState.promptSuggestions?.onTurnCompleted(promptText, eventHandler.getLastAgentMessageText());
+       if (pendingInsertion === void 0) {
+         await this.publishFallbackSessionTitle(

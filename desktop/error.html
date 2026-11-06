@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>X Bench</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a0a;
+        --text: #ededed;
+        --soft: #9a9a9a;
+        --panel: #161616;
+        --line: #262626;
+        --button: #ededed;
+        --button-text: #0a0a0a;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          color-scheme: light;
+          --bg: #ffffff;
+          --text: #111111;
+          --soft: #666666;
+          --panel: #f4f4f4;
+          --line: #e2e2e2;
+          --button: #111111;
+          --button-text: #ffffff;
+        }
+      }
+
+      html {
+        height: 100%;
+        -webkit-app-region: drag;
+      }
+
+      body {
+        box-sizing: border-box;
+        min-height: 100%;
+        margin: 0;
+        padding: 72px 24px 24px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 650;
+      }
+
+      p {
+        margin: 0;
+        max-width: 560px;
+        color: var(--soft);
+        text-align: center;
+      }
+
+      pre {
+        box-sizing: border-box;
+        width: min(720px, 100%);
+        max-height: 40vh;
+        margin: 8px 0;
+        padding: 12px 14px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+        color: var(--soft);
+        font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+        white-space: pre-wrap;
+        user-select: text;
+        -webkit-app-region: no-drag;
+      }
+
+      pre:empty { display: none; }
+
+      a {
+        margin-top: 8px;
+        padding: 8px 18px;
+        border-radius: 999px;
+        background: var(--button);
+        color: var(--button-text);
+        font-weight: 600;
+        text-decoration: none;
+        -webkit-app-region: no-drag;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">X Bench stopped</h1>
+    <p id="reason">The X Bench server is not running.</p>
+    <pre id="output"></pre>
+    <!-- desktop/main.js catches this navigation and restarts the server. -->
+    <a id="restart" href="?restart">Restart</a>
+    <script>
+      var params = new URLSearchParams(location.search);
+      if (params.get("title")) document.getElementById("title").textContent = params.get("title");
+      if (params.get("reason")) document.getElementById("reason").textContent = params.get("reason");
+      document.getElementById("output").textContent = params.get("output") || "";
+    </script>
+  </body>
+</html>

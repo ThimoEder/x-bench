@@ -1,0 +1,26 @@
+{
+    "name": "XBench.Unity.Editor",
+    "rootNamespace": "XBench.Unity",
+    "references": [
+        "Unity.InputSystem",
+        "Unity.Pipeline.Attributes",
+        "Klak.Syphon.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "autoReferenced": false,
+    "versionDefines": [
+        {
+            "name": "com.unity.pipeline",
+            "expression": "0.0.0",
+            "define": "XBENCH_PIPELINE"
+        },
+        {
+            "name": "jp.keijiro.klak.syphon",
+            "expression": "1.0.0",
+            "define": "XBENCH_SYPHON"
+        }
+    ]
+}

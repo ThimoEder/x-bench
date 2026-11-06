@@ -1,0 +1,80 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "react",
+    "import"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    "release/**",
+    ".playwright-mcp/**",
+    ".claude/**"
+  ],
+  "rules": {
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "no-var": "error",
+    "array-callback-return": "error",
+    "no-template-curly-in-string": "error",
+    "no-promise-executor-return": "error",
+    "import/no-cycle": "error",
+    "import/default": "off",
+    "max-lines-per-function": [
+      "warn",
+      {
+        "max": 200,
+        "skipBlankLines": true,
+        "skipComments": true
+      }
+    ],
+    "max-params": [
+      "warn",
+      {
+        "max": 6
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "desktop/**/*.js"
+      ],
+      "env": {
+        "node": true
+      }
+    },
+    {
+      "files": [
+        "ui/**/*.{ts,tsx,js}"
+      ],
+      "rules": {
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "warn",
+        "react/refs": "off",
+        "react/set-state-in-effect": "off",
+        "react/purity": "off",
+        "react/immutability": "off",
+        "react/preserve-manual-memoization": "off"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.*",
+        "**/testing/**"
+      ],
+      "rules": {
+        "max-lines-per-function": "off",
+        "max-params": "off"
+      }
+    }
+  ]
+}

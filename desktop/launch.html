@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>X Bench</title>
+    <!-- Keep in step with the launch screen in ui/index.html, which takes over when the app loads, so the logo stays put. -->
+    <script>
+      document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") ||
+        (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    </script>
+    <style>
+      html { height: 100%; -webkit-app-region: drag; }
+      body { margin: 0; }
+
+      .launch {
+        --launch-bg: radial-gradient(ellipse at 50% 45%, #18181b 0%, #0a0a0a 60%);
+        --plate-top: #232326; --plate-bottom: #0a0a0a;
+        --left: #ffffff; --right-top: #b4b4ba; --right-bottom: #76767c;
+        --plate-shadow: none;
+        position: fixed; inset: 0; z-index: 1000;
+        display: grid; place-items: center; background: var(--launch-bg);
+        transition: opacity .4s ease;
+      }
+      :root[data-theme="light"] .launch {
+        --launch-bg: #ffffff;
+        --plate-top: #ffffff; --plate-bottom: #e6e6ea;
+        --left: #0a0a0a; --right-top: #9a9aa0; --right-bottom: #6a6a70;
+        --plate-shadow: drop-shadow(0 6px 14px rgba(0, 0, 0, .14));
+      }
+      .launch .mark { position: relative; width: 120px; height: 120px; filter: var(--plate-shadow); animation: launch-rise .7s cubic-bezier(.2, .8, .2, 1) both; }
+      .launch .mark svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .launch .plate-top { stop-color: var(--plate-top); }
+      .launch .plate-bottom { stop-color: var(--plate-bottom); }
+      .launch .right-top { stop-color: var(--right-top); }
+      .launch .right-bottom { stop-color: var(--right-bottom); }
+      .launch .left path { stroke: var(--left); }
+      /* Each chevron is its own layer, so the breath runs on the compositor while the page is busy loading. */
+      .launch .left, .launch .right { will-change: transform; animation: 2s ease-in-out infinite; animation-delay: var(--phase, 0s); }
+      .launch .left { animation-name: launch-left; }
+      .launch .right { animation-name: launch-right; }
+      @keyframes launch-rise { from { opacity: 0; transform: translateY(12px) scale(.92); } }
+      @keyframes launch-left { 50% { transform: translateX(-3.8px); } }
+      @keyframes launch-right { 50% { transform: translateX(3.8px); } }
+      @media (prefers-reduced-motion: reduce) {
+        .launch .mark, .launch .left, .launch .right { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="launch" role="status" aria-label="Starting X Bench">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="100 100 824 824">
+          <defs><linearGradient id="launch-plate" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="plate-top" /><stop offset="1" class="plate-bottom" /></linearGradient></defs>
+          <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#launch-plate)" />
+        </svg>
+        <svg class="left" viewBox="100 100 824 824">
+          <path d="M300 318 L446 512 L300 706" fill="none" stroke-width="100" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <svg class="right" viewBox="100 100 824 824">
+          <defs><linearGradient id="launch-right" x1="0" y1="0" x2="1" y2="1"><stop offset="0" class="right-top" /><stop offset="1" class="right-bottom" /></linearGradient></defs>
+          <path d="M724 318 L578 512 L724 706" fill="none" stroke="url(#launch-right)" stroke-width="100" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </div>
+    </div>
+    <script>
+      // Both launch screens take the breath's phase from the clock, so it carries on when the app page replaces the window's.
+      document.querySelector(".launch").style.setProperty("--phase", -(Date.now() % 2000) + "ms");
+    </script>
+  </body>
+</html>

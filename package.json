@@ -1,0 +1,64 @@
+{
+  "name": "x-bench",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "desktop/main.js",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "node server/index.ts",
+    "app": "node desktop/dev-app.js",
+    "app:dev": "node desktop/dev-app.js --watch",
+    "build": "vite build",
+    "dist": "node node_modules/electron/install.js && vite build && node desktop/bundle-host.js && node desktop/bundle-sak.js && bash desktop/devices/sim-helper/build.sh && bash desktop/devices/android-helper/build.sh && bash desktop/unity/unity-view/build.sh && electron-builder --config desktop/electron-builder.json",
+    "test": "node --test \"bridge/*.test.*\" \"bridge/*/*.test.*\" \"desktop/**/*.test.*\" \"server/**/*.test.*\" \"ui/**/*.test.*\"",
+    "typecheck": "tsc && tsc -p tsconfig.worklet.json",
+    "lint": "oxlint --max-warnings=25",
+    "smoke": "node bridge/smoke.mjs",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.97.0",
+    "@agentclientprotocol/codex-acp": "2.5.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.310",
+    "@ngrok/ngrok": "1.7.0",
+    "electron-updater": "^6.8.12",
+    "node-pty": "1.1.0",
+    "qrcode": "1.5.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "sherpa-onnx-node": "1.13.8",
+    "zod": "^4.6.5"
+  },
+  "overrides": {
+    "lodash-es": "^4.18.1"
+  },
+  "devDependencies": {
+    "@agentclientprotocol/sdk": "^2.0.2",
+    "@types/node": "^22.20.4",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
+    "beautiful-mermaid": "^1.1.3",
+    "dompurify": "^3.4.16",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "happy-dom": "20.10.1",
+    "katex": "0.18.9",
+    "mermaid": "^12.0.0",
+    "oxlint": "^1.85.0",
+    "patch-package": "^8.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  }
+}

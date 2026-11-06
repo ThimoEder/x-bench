@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["ES2024", "DOM"]
+  },
+  "include": ["ui/chat/composer/voice-worklet.js", "types/audio-worklet.d.ts"],
+  "exclude": []
+}

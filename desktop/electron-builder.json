@@ -1,0 +1,117 @@
+{
+  "$schema": "../node_modules/app-builder-lib/scheme.json",
+  "appId": "dev.xbench",
+  "productName": "X Bench",
+  "copyright": "Copyright © 2026 Thimo Eder",
+  "directories": {
+    "output": "release",
+    "buildResources": "desktop/build"
+  },
+  "files": [
+    "package.json",
+    "desktop/main.js",
+    "desktop/host.js",
+    "desktop/browser/browser.js",
+    "desktop/browser/browserRules.js",
+    "desktop/unity/unityView.js",
+    "desktop/unity/unityRules.js",
+    "desktop/railTip.js",
+    "desktop/screenshot/screenshot.js",
+    "desktop/updater/updater.js",
+    "desktop/updater/updateRules.js",
+    "desktop/secrets/secretKey.js",
+    "desktop/adapters/adapters.js",
+    "desktop/adapters/adapterProcess.js",
+    "desktop/licenses/licensesWindow.js",
+    "desktop/unity/unity-view/build/unity_view.node",
+    "desktop/preload.cjs",
+    "desktop/browser/viewportBadge.cjs",
+    "desktop/browser/viewportBadge.html",
+    "desktop/error.html",
+    "desktop/launch.html",
+    "dist/ui/**/*",
+    "dist/host/**/*",
+    "!node_modules/{react,react-dom,scheduler}/**",
+    "!node_modules/@openai/**",
+    "!node_modules/@anthropic-ai/claude-agent-sdk-*/**",
+    "!node_modules/@ngrok/ngrok-darwin-universal/**",
+    "!node_modules/{@anthropic-ai/sdk,@babel/runtime,@hono/node-server,@modelcontextprotocol/sdk,@opentelemetry/api,@stablelib/base64}/**",
+    "!node_modules/{accepts,ajv,ajv-formats,ansi-regex,ansi-styles,body-parser,bundle-name,bytes,call-bind-apply-helpers,call-bound,camelcase,cliui,color-convert,color-name,content-disposition,content-type,cookie,cookie-signature,cors,cross-spawn,decamelize,default-browser,default-browser-id,define-lazy-prop,depd,dijkstrajs,dunder-proto,ee-first,emoji-regex,encodeurl,es-define-property,es-errors,es-object-atoms,escape-html,etag,eventsource,eventsource-parser,express,express-rate-limit,fast-deep-equal,fast-sha256,fast-uri,finalhandler,find-up,forwarded,fresh,function-bind,get-caller-file,get-intrinsic,get-proto,gopd,has-symbols,hasown,hono,http-errors,iconv-lite,inherits,ip-address,ipaddr.js,is-docker,is-fullwidth-code-point,is-in-ssh,is-inside-container,is-promise,is-wsl,isexe,jose,json-schema-to-ts,json-schema-traverse,json-schema-typed,locate-path,math-intrinsics,media-typer,merge-descriptors,negotiator,node-addon-api,object-assign,object-inspect,on-finished,once,open,p-limit,p-locate,p-try,parseurl,path-exists,path-key,path-to-regexp,pkce-challenge,pngjs,powershell-utils,proxy-addr,qrcode,qs,range-parser,raw-body,require-directory,require-from-string,require-main-filename,router,run-applescript,safer-buffer,send,serve-static,set-blocking,setprototypeof,shebang-command,shebang-regex,side-channel,side-channel-list,side-channel-map,side-channel-weakmap,standardwebhooks,statuses,string-width,strip-ansi,toidentifier,ts-algebra,type-is,unpipe,vary,vscode-jsonrpc,which,which-module,wrap-ansi,wrappy,wsl-utils,y18n,yargs,yargs-parser,zod-to-json-schema}/**",
+    "!node_modules/node-pty/{binding.gyp,deps,scripts,src,third_party,typings}",
+    "!node_modules/node-pty/prebuilds/win32-*",
+    "!node_modules/node-pty/lib/**/*.{map,test.js}"
+  ],
+  "npmRebuild": false,
+  "electronFuses": {
+    "runAsNode": false,
+    "enableCookieEncryption": true,
+    "enableNodeCliInspectArguments": false,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableEmbeddedAsarIntegrityValidation": true,
+    "onlyLoadAppFromAsar": true,
+    "grantFileProtocolExtraPrivileges": true
+  },
+  "asarUnpack": [
+    "node_modules/sherpa-onnx-*/**",
+    "node_modules/node-pty/prebuilds/**",
+    "node_modules/@ngrok/**",
+    "desktop/unity/unity-view/build/unity_view.node"
+  ],
+  "extraResources": [
+    {
+      "from": "dist/sak",
+      "to": "sak"
+    },
+    {
+      "from": "desktop/devices/sim-helper/build",
+      "to": "sim-helper"
+    },
+    {
+      "from": "desktop/devices/android-helper/build",
+      "to": "android-helper"
+    }
+  ],
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["arm64"]
+      }
+    ],
+    "artifactName": "X-Bench-${version}-${arch}.${ext}",
+    "icon": "desktop/build/icon.icns",
+    "category": "public.app-category.developer-tools",
+    "identity": "Thimo Eder (NFH75RY9MR)",
+    "notarize": true,
+    "hardenedRuntime": true,
+    "entitlements": "desktop/build/entitlements.mac.plist",
+    "entitlementsInherit": "desktop/build/entitlements.mac.plist",
+    "binaries": [
+      "Contents/Resources/sak/sak",
+      "Contents/Resources/sim-helper/xbench-sim",
+      "Contents/Resources/android-helper/xbench-encode"
+    ],
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "X Bench uses the microphone for dictation. The speech is transcribed on this Mac."
+    }
+  },
+  "publish": {
+    "provider": "generic",
+    "url": "https://xbench.dev/update/"
+  },
+  "dmg": {
+    "artifactName": "X-Bench-${arch}.${ext}",
+    "title": "X Bench",
+    "sign": true,
+    "iconSize": 128,
+    "contents": [
+      { "x": 156, "y": 254 },
+      { "x": 444, "y": 254, "type": "link", "path": "/Applications" }
+    ]
+  },
+  "afterAllArtifactBuild": "./desktop/notarize-dmg.js"
+}

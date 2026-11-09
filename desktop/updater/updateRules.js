@@ -31,3 +31,20 @@ export function appBundle(executable) {
   if (!bundle.endsWith(".app") || bundle.includes("/AppTranslocation/")) return null;
   return bundle;
 }
+
+// Release notes hold one note per line, grouped under optional heading lines such as "Fixed:".
+export function noteSections(text) {
+  const sections = [];
+  for (const line of String(text ?? "").split("\n").map((each) => each.trim()).filter(Boolean)) {
+    const heading = /^(.+):$/.exec(line)?.[1];
+    if (heading || !sections.length) sections.push({ heading: heading ?? "", notes: [] });
+    if (!heading) sections.at(-1).notes.push(line);
+  }
+  return sections.filter((section) => section.notes.length);
+}
+
+export function notesList(text, heading) {
+  return noteSections(text)
+    .map((section) => [section.heading && heading(section.heading), ...section.notes.map((note) => `- ${note}`)].filter(Boolean).join("\n"))
+    .join("\n\n");
+}

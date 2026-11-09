@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import type { OpenSession, TicketLink, TicketLinks } from "../../server/snapshot.ts";
 import { MarkdownView } from "../chat/markdown/MarkdownView.tsx";
 import type { ApiCall } from "../launchToken.ts";
-import { moveList, type BoardMove } from "./boardData.ts";
+import { useBoardColumns } from "./boardCache.ts";
+import { columnColor, columnFor, moveList, type BoardMove } from "./boardData.ts";
 import { statusTone } from "./ticketStatus.ts";
 
 export interface TicketChipsProps {
@@ -47,7 +48,14 @@ function TicketChip({ link, cwd, onOpen, call }: TicketChipProps) {
   const [moving, setMoving] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const status = moved?.title ?? (link.status || "unset");
-  const color = statusTone(status) || "var(--soft)";
+  const columns = useBoardColumns(cwd);
+  // The column's color on the board, or the one its name stands for until the board loads.
+  const tone = (name: string) => {
+    const color = columnColor(columnFor(columns, name)) ?? statusTone(name);
+    return color === undefined ? undefined : String(color);
+  };
+  // The color the host kept with the link is the one the sidebar shows. A move on its way has none yet.
+  const color = (moved ? undefined : link.color) || tone(status) || "var(--soft)";
   const number = ticketNumber(link);
 
   useEffect(() => {
@@ -78,6 +86,7 @@ function TicketChip({ link, cwd, onOpen, call }: TicketChipProps) {
           number={number}
           pressed={moved ? moveKey(moved) : HERE}
           color={color}
+          tone={tone}
           call={call}
           onClose={() => setOpen(false)}
           onOpen={onOpen ? () => {
@@ -112,6 +121,7 @@ interface TicketCardProps {
   // The key of the row that shows as the ticket's column: the confirmed one, or the move on its way.
   pressed: string;
   color: string;
+  tone: (status: string) => string | undefined;
   call?: ApiCall;
   onClose: () => void;
   onOpen?: () => void;
@@ -119,7 +129,7 @@ interface TicketCardProps {
   moving?: boolean;
 }
 
-function TicketCard({ anchor, link, cwd, number, pressed, color, call, onClose, onOpen, onMove, moving = false }: TicketCardProps) {
+function TicketCard({ anchor, link, cwd, number, pressed, color, tone, call, onClose, onOpen, onMove, moving = false }: TicketCardProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [description, setDescription] = useState<string | null>(null);
   const [full, setFull] = useState(false);
@@ -247,7 +257,7 @@ function TicketCard({ anchor, link, cwd, number, pressed, color, call, onClose, 
                 aria-pressed={moveKey(move) === pressed}
                 disabled={moving}
                 title={move.needs.length ? `Fill in ${move.needs.map((field) => field.name).join(", ")} on the board` : undefined}
-                style={{ "--status": statusTone(move.title) }}
+                style={{ "--status": tone(move.title) }}
                 onClick={() => {
                   if (move.status === null) return;
                   if (move.needs.length) onOpen?.();

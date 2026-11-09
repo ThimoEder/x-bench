@@ -39,7 +39,7 @@ function dayLabel(date: Date, now: Date): string {
   return date.toLocaleDateString("en-US", options);
 }
 
-function clock(date: Date): string {
+export function clock(date: Date): string {
   return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 

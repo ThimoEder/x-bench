@@ -1,11 +1,13 @@
 import type { Key, ReactNode } from "react";
 import type { BoardCapabilities, BoardColumnView, BoardComment, BoardMove, BoardPerson, MoveField } from "../../server/board/boardAdapter.ts";
+import { columnStatus, LIST_COLORS, orderColumns, settingsColor, type BoardSettings } from "../../server/board/boardSettings.ts";
 import type { SessionTicketLink } from "../../server/board/tickets.ts";
 import type { TrelloColumnView, TrelloLabelView, TrelloTask } from "../../server/board/trello/trello.ts";
 import type { CallOptions } from "../launchToken.ts";
 import { statusTone } from "./ticketStatus.ts";
 
 export type { BoardMove, BoardPerson, MoveField };
+export { LIST_COLORS };
 
 export type BoardCall = (path: string, body?: unknown, method?: string, options?: CallOptions) => Promise<unknown>;
 
@@ -45,6 +47,8 @@ export interface BoardView {
   truncated?: unknown;
   activity?: unknown;
   me?: unknown;
+  // The folder's board settings, as boardSettings reads them.
+  settings?: unknown;
 }
 
 // The detail panel reads these as text.
@@ -171,6 +175,11 @@ function replyOf(error: unknown): Record<string, unknown> {
   return isRecord(error) && isRecord(error.reply) ? error.reply : {};
 }
 
+// Where a board that did not answer was expected, when the host names it.
+export function addressOf(error: unknown): string {
+  return textOf(replyOf(error).address);
+}
+
 export function statusOf(error: unknown): number {
   return isRecord(error) && typeof error.status === "number" ? error.status : 0;
 }
@@ -215,17 +224,31 @@ export function textOf(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-// The swatches for a column and a new label. A column saves the name, so the names match LIST_COLORS in server/board/trello/trelloSource.ts.
-export const LIST_COLORS = [
-  ["green", "#61bd4f"],
-  ["yellow", "#f2d600"],
-  ["orange", "#ff9f1a"],
-  ["red", "#eb5a46"],
-  ["purple", "#c377e0"],
-  ["blue", "#0079bf"],
-  ["lime", "#51e898"],
-  ["gray", "#838c91"],
-] as const;
+function isTextList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+// The board settings a load answers. The host cleans them, so this checks only their shape.
+export function boardSettings(value: unknown): BoardSettings | null {
+  if (!isRecord(value) || !isRecord(value.columns) || !isTextList(value.order) || !isRecord(value.moves)) return null;
+  return value as unknown as BoardSettings;
+}
+
+// The board with these settings, or the board itself when it has them already, so nothing draws again.
+export function withSettings(board: BoardView, settings: unknown): BoardView {
+  return JSON.stringify(board.settings) === JSON.stringify(settings) ? board : { ...board, settings };
+}
+
+// The board as its settings show it: columns in their order, painted where the source keeps no colors.
+export function arrangedBoard(board: BoardView, settings: BoardSettings): BoardView {
+  const paints = !canDo(board, "columnColors");
+  const columns = orderColumns(board.columns, settings.order, (column) => columnStatus(column.value)).map((column) => {
+    const status = columnStatus(column.value);
+    const hex = paints ? settingsColor(settings, status) : undefined;
+    return hex ? { ...column, color: hex, colorName: settings.columns[status]?.color } : column;
+  });
+  return { ...board, columns };
+}
 
 // Whether the board's source does this here. A flag the host left out reads as off.
 export function canDo(board: BoardView | null, flag: Flag): boolean {

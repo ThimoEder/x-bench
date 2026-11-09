@@ -40,7 +40,7 @@ export interface Snapshot {
   routines: RoutinesView;
   // Settings of the app that the host acts on. desktop is false in a browser tab's host, which has no app to keep
   // the Mac awake.
-  app: { desktop: boolean; keepAwake: boolean };
+  app: { desktop: boolean; keepAwake: boolean; planTool: boolean };
   // A session every page should show, as a click on its notification asks. The nonce changes with every ask, and a
   // page that opens later than a few seconds after `at` leaves it.
   reveal: { sessionId: string; cwd: string; chat: boolean; nonce: number; at: number } | null;
@@ -154,6 +154,8 @@ export interface TicketLink {
   title: string;
   reference: number | null;
   status: string | null;
+  // The color of the ticket's column on its board, when the host knows one.
+  color?: string;
   // The ticket moved from Review to Done, so the chat offers to archive itself.
   cleanup?: true;
 }

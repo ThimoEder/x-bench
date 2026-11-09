@@ -1,6 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
-import type { SakStatus } from "../../server/board/sak/sakClient.ts";
 import type { SidebarSession, TicketLinks } from "../../server/snapshot.ts";
 import type { ComposerCatalog } from "../../server/snapshot.ts";
 import { BoardSite, type BoardSitePage, type BoardSiteRequest } from "./BoardSite.tsx";
@@ -10,9 +9,11 @@ import type { WorktreePlan } from "../folder/draftWorktree.ts";
 import { LabelPicker } from "./LabelPicker.tsx";
 import { LabelSheet } from "./LabelSheet.tsx";
 import { Avatar, TicketDetail, TicketSkeleton } from "./TicketDetail.tsx";
-import { AlertIcon, CalendarIcon, CheckIcon, ChecklistIcon, ChevronIcon, CommentIcon, LinkIcon, PlusIcon, SubtasksIcon, TypeIcon } from "./boardIcons.tsx";
+import { AlertIcon, CalendarIcon, CheckIcon, ChecklistIcon, ChevronIcon, CollapseIcon, CommentIcon, LinkIcon, PlusIcon, ReloadIcon, SlidersIcon, SubtasksIcon, TypeIcon } from "./boardIcons.tsx";
+import { columnStatus } from "../../server/board/boardSettings.ts";
+import { BoardSettingsPane, ColumnPalette, useBoardSettings } from "./BoardSettings.tsx";
 import {
-  boardView,
+  arrangedBoard,
   canDo,
   cardBadge,
   checked,
@@ -23,7 +24,6 @@ import {
   isDetailTask,
   isRecord,
   keyOf,
-  LIST_COLORS,
   messageOf,
   neededFields,
   nodeOf,
@@ -35,7 +35,6 @@ import {
   taskStatus,
   textOf,
   ticketName,
-  UNREADABLE_BOARD,
   type BoardCall,
   type BoardColumn,
   type BoardLabel,
@@ -46,10 +45,11 @@ import {
   type MoveField,
   type TaskDetail,
 } from "./boardData.ts";
+import { useBoardLoad } from "./useBoardLoad.ts";
 import { threadCount } from "./ticketStatus.ts";
 import { useDismiss } from "./useDismiss.ts";
-import { watchGit } from "../git/gitWatch.ts";
 import {
+  clock,
   dropIndex,
   dueState,
   hideCollapsed,
@@ -81,10 +81,6 @@ interface Asking {
   order?: string[];
   fields: MoveField[];
   values: Record<string, string>;
-}
-
-function isSakStatus(value: unknown): value is Pick<SakStatus, "baseUrl"> {
-  return isRecord(value) && typeof value.baseUrl === "string";
 }
 
 function isPainted(value: unknown): value is { column: BoardColumn } {
@@ -166,17 +162,15 @@ export interface ProjectBoardProps {
 export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog, picks, onPick, worktree, onWorktree, onLink, onSelect, refreshKey, working = [], tickets = null, sitePage = null, onOpenSite, onCloseSite }: ProjectBoardProps) {
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [board, setBoard] = useState<BoardView | null>(null);
-  const [failure, setFailure] = useState("");
-  const [address, setAddress] = useState("");
   const [selected, setSelected] = useState<unknown>(taskId);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [spot, setSpot] = useState<DropSpot | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
-  const [poll, setPoll] = useState(0);
+  const { board, setBoard, failure, address, poll, checkedAt, reloading, reloadAll } = useBoardLoad({ cwd, query, call, refreshKey, reload, onLink });
   const [menu, setMenu] = useState<CardMenu | null>(null);
-  const [colorFor, setColorFor] = useState<unknown>(null);
+  // The status of the column whose palette is open. A column without a status opens it as "".
+  const [colorFor, setColorFor] = useState<string | null>(null);
   const [adding, setAdding] = useState<{ column: unknown } | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newLabels, setNewLabels] = useState<BoardLabel[]>([]);
@@ -188,12 +182,14 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
   const [asking, setAsking] = useState<Asking | null>(null);
   const [deleting, setDeleting] = useState<{ task: BoardTask; error: string; busy: boolean } | null>(null);
   const [threadFor, setThreadFor] = useState<BoardTask | null>(null);
-  const loaded = useRef(false);
-  const activity = useRef<unknown>("");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const filterPanel = useRef<HTMLDivElement | null>(null);
   const [statusFilter, setStatusFilter] = useState<unknown[]>([]);
   const [labelFilter, setLabelFilter] = useState<unknown[]>([]);
   const [hideEmpty, setHideEmpty] = useState(false);
+  const boardSettings = useBoardSettings(cwd, call, () => setReload((value) => value + 1));
+  const { settings, take: takeSettings } = boardSettings;
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [picked, setPicked] = useState<{ boardKey: string; person: BoardPerson | null } | null>(null);
   const [quickMenu, setQuickMenu] = useState<"person" | "type" | null>(null);
@@ -207,6 +203,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
   // The pane opens on a skeleton until the detail comes, and stays mounted while it slides out.
   const ticketOpen = Boolean(selected) && !sameId(missing, selected);
   const ticketPresence = usePresence(ticketOpen, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 350);
+  const settingsPresence = usePresence(settingsOpen, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 350);
   const lastDetail = useRef(detail);
   if (ticketOpen) lastDetail.current = detail;
   const pane = ticketOpen ? detail : lastDetail.current;
@@ -214,20 +211,34 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
 
   useDismiss(quickMenu !== null, "[data-quick-menu]", () => setQuickMenu(null));
   useDismiss(filtersOpen, ".board-bar", () => setFiltersOpen(false));
+
+  // The filter panel ends above the window's bottom edge and scrolls the rest. Picked filters add chips that can
+  // wrap the toolbar and push the panel down, so this runs on every render.
+  useLayoutEffect(() => {
+    const panel = filterPanel.current;
+    if (!filtersOpen || !panel) return undefined;
+    function fit() {
+      if (panel) panel.style.maxHeight = `${Math.max(120, window.innerHeight - panel.getBoundingClientRect().top - 12)}px`;
+    }
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  });
   useDismiss(colorFor !== null, "[data-color-menu]", () => setColorFor(null));
 
-  // Esc closes the open ticket, unless it belongs to a field, a menu or a dialog that is open.
+  // Esc closes the open ticket or the board settings, unless it belongs to a field, a menu or a dialog that is open.
   useEffect(() => {
-    if (!selected) return undefined;
+    if (!selected && !settingsOpen) return undefined;
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']")) return;
       if (document.querySelector(".sheet-scrim, .ticket-menu, .board-menu, .board-filter-panel, .column-toolbar.is-open, .board-site")) return;
-      closeDetail.current();
+      if (settingsOpen) setSettingsOpen(false);
+      else closeDetail.current();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected]);
+  }, [selected, settingsOpen]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 200);
@@ -256,6 +267,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
   const scrolledTask = useRef<unknown>(null);
   useEffect(() => {
     setSelected(taskId ?? null);
+    if (taskId) setSettingsOpen(false);
   }, [taskId]);
 
   useEffect(() => {
@@ -266,65 +278,9 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
     card.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [taskId, selected, board]);
 
-  // A write through this host reloads the board through refreshKey, so polling only picks up edits made elsewhere.
-  const local = canDo(board, "local");
-  useEffect(() => watchGit(() => setPoll((value) => value + 1), local ? 10_000 : 60_000, 60_000), [local, cwd]);
-
-  useEffect(() => {
-    loaded.current = false;
-    activity.current = "";
-  }, [cwd, query]);
-
-  useEffect(() => {
-    function onFocus() {
-      setPoll((value) => value + 1);
-    }
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
-
-  useEffect(() => {
-    let cancel = false;
-    if (!loaded.current) setFailure("");
-    const params = new URLSearchParams({ cwd });
-    if (query) params.set("search", query);
-    if (activity.current) params.set("activity", String(activity.current));
-    call(`/api/board/board?${params}`, null, "GET", { quiet: true })
-      .then((data) => {
-        if (cancel) return;
-        if (isRecord(data) && data.unchanged) {
-          loaded.current = true;
-          activity.current = data.activity || activity.current;
-          return;
-        }
-        const view = boardView(data);
-        // The catch shows this on the first load and keeps the last board on a later poll.
-        if (!view) throw new Error(UNREADABLE_BOARD);
-        loaded.current = true;
-        activity.current = view.activity || "";
-        setBoard(view);
-        onLink?.(typeof view.url === "string" && view.url ? { url: view.url, source: sourceName(view), signedIn: canDo(view, "signedInPages") } : null);
-      })
-      .catch(async (error: unknown) => {
-        if (cancel || loaded.current) return;
-        setBoard(null);
-        setFailure(messageOf(error));
-        // Only a failed SAK request points at the SAK address.
-        if (/trello|jira/i.test(messageOf(error)) || messageOf(error) === UNREADABLE_BOARD) {
-          setAddress("");
-          return;
-        }
-        try {
-          const status = await call("/api/sak/status", null, "GET", { quiet: true });
-          if (!cancel) setAddress((isSakStatus(status) && status.baseUrl) || "");
-        } catch {
-          if (!cancel) setAddress("");
-        }
-      });
-    return () => {
-      cancel = true;
-    };
-  }, [cwd, query, refreshKey, reload, poll, call, onLink]);
+  // Before the board paints, so it never shows in the source's order with its hidden columns.
+  const loadedSettings = board?.settings;
+  useLayoutEffect(() => takeSettings(loadedSettings), [loadedSettings, takeSettings]);
 
   useEffect(() => {
     if (!selected) {
@@ -392,7 +348,15 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
     }
   }
 
+  // A new color leaves the board's activity stamp as it is, so the board loads in full after it: the kept board
+  // takes the color, and the host colors the linked chats.
   async function paintColumn(column: BoardColumn, color: string | null) {
+    setColorFor(null);
+    if (!canDo(board, "columnColors")) {
+      await boardSettings.setColumn(column, { color: color ?? undefined });
+      reloadAll();
+      return;
+    }
     const saved = checked(await call("/api/board/lists", { cwd, listId: column.value, color }), isPainted);
     setBoard((current) => current && ({
       ...current,
@@ -400,10 +364,12 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
         item.value === column.value ? { ...item, color: saved.column.color, colorName: saved.column.colorName } : item
       )),
     }));
-    setColorFor(null);
+    reloadAll();
   }
 
+  // The ticket and the board settings share the dock, so one closes the other.
   function choose(id: unknown) {
+    if (id !== null && id !== undefined) setSettingsOpen(false);
     setMissing(null);
     setSelected(id);
     onSelect?.(id);
@@ -413,6 +379,11 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
     if (id === null) return;
     setFocusId(id);
     document.querySelector<HTMLElement>(`[data-card-id="${CSS.escape(id)}"]`)?.focus();
+  }
+
+  function toggleSettings(open: boolean) {
+    if (open) choose(null);
+    setSettingsOpen(open);
   }
 
   function closeTicket() {
@@ -533,6 +504,11 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
     setSpot((current) => (current && current.column === column.value && current.index === index ? current : { column: column.value, index }));
   }
 
+  function dragLeave(event: DragEvent<HTMLElement>, column: BoardColumn) {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    setSpot((current) => (current?.column === column.value ? null : current));
+  }
+
   // shown is the column's cards that show; whole is every card the column holds, in order.
   function drop(event: DragEvent<HTMLElement>, column: BoardColumn, shown: string[], whole: string[]) {
     event.preventDefault();
@@ -557,6 +533,11 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
 
   if (!board) return <BoardSkeleton />;
 
+  const arranged = arrangedBoard(board, settings);
+  const settingsOf = (column: BoardColumn) => settings.columns[columnStatus(column.value)];
+  // A search also shows a hidden column that holds a ticket it found.
+  const hidden = arranged.columns.filter((column) => settingsOf(column)?.hidden && !(query && board.tasks.some((task) => taskStatus(task) === column.value)));
+  const showing = arranged.columns.filter((column) => !hidden.includes(column));
   const choices = labelChoices([
     ...(board.labels || []),
     ...(board.tasks || []).flatMap((task) => task.labels || []),
@@ -568,6 +549,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
   // Every filter but the person one, so the person menu can count what each pick would show.
   const filtered = (board.tasks || []).filter((task) => {
     const key = statusKey(taskStatus(task));
+    if (hidden.some((column) => column.value === taskStatus(task))) return false;
     if (statusOn.size && !statusOn.has(key)) return false;
     if (labelOn.size && !(task.labels || []).some((label) => labelOn.has(label.title))) return false;
     return !typeFilter || typeKey(task) === typeFilter;
@@ -577,7 +559,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
   const person = picked?.boardKey === boardKey ? picked.person : readPerson(boardKey);
   const personId = canDo(board, "assignees") ? person?.id ?? null : null;
   const shown = filtered.filter((task) => personMatch(assigned(task), personId, me));
-  const lanes = board.columns.filter((column) => {
+  const lanes = showing.filter((column) => {
     const key = statusKey(column.value);
     if (statusOn.size && !statusOn.has(key)) return false;
     if (!hideEmpty) return true;
@@ -596,7 +578,8 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
       return task ? [{ ...card, task }] : [];
     });
   };
-  const lanesCards = lanes.map((column) => hideCollapsed(nestedIn(shown, column), openParents));
+  // A collapsed column shows no cards, so the arrow keys pass over it and a card dropped on it goes to its end.
+  const lanesCards = lanes.map((column) => (settingsOf(column)?.collapsed ? [] : hideCollapsed(nestedIn(shown, column), openParents)));
   const grid = lanesCards.map((cards) => cards.map((card) => card.id));
   const parentBadge = (task: BoardTask) => {
     const parent = parentOf(task);
@@ -674,15 +657,37 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
               <span aria-hidden="true">×</span>
             </button>
           ))}
+          {hidden.length ? (
+            <button type="button" className="board-chip" title={hidden.map((column) => String(column.title)).join(", ")} onClick={() => toggleSettings(true)}>
+              {hidden.length === 1 ? "1 hidden column" : `${hidden.length} hidden columns`}
+            </button>
+          ) : null}
           <span className="board-spacer" />
           <span className="board-count">{shown.length === 1 ? "1 ticket" : `${shown.length} tickets`}</span>
+          <button
+            type="button"
+            className={reloading ? "icon board-reload is-busy" : "icon board-reload"}
+            aria-label="Reload the board"
+            title={checkedAt ? `Checked at ${clock(checkedAt)} · Reload` : "Reload"}
+            onClick={reloadAll}
+          >
+            <ReloadIcon />
+          </button>
+          <button type="button" className="icon board-settings-open" aria-label="Board settings" title="Board settings" aria-expanded={settingsOpen} onClick={() => toggleSettings(!settingsOpen)}>
+            <SlidersIcon />
+          </button>
         </div>
         {filtersOpen ? (
-          <div ref={leaveRef} className="board-filter-panel" role="dialog" aria-label="Filters">
+          <div
+            ref={(node) => {
+              filterPanel.current = node;
+              return leaveRef(node);
+            }}
+            className="board-filter-panel" role="dialog" aria-label="Filters">
             <section>
               <h3>Status</h3>
               <div className="board-filter-options">
-                {board.columns.map((column) => {
+                {showing.map((column) => {
                   const key = statusKey(column.value);
                   return (
                     <label key={keyOf(key)}>
@@ -762,35 +767,51 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
             const line = spot && spot.column === column.value ? spot.index : -1;
             const open = adding !== null && adding.column === column.value;
             let place = 0;
+            if (settingsOf(column)?.collapsed) {
+              return (
+                <CollapsedColumn
+                  key={keyOf(statusKey(column.value))}
+                  column={column}
+                  count={count}
+                  over={line >= 0}
+                  onExpand={() => boardSettings.setColumn(column, { collapsed: false })}
+                  onDragOver={(event) => dragOver(event, column)}
+                  onDragLeave={(event) => dragLeave(event, column)}
+                  onDrop={(event) => drop(event, column, cardIds, nestedIn(board.tasks, column).map((card) => card.id))}
+                />
+              );
+            }
             return (
               <section
                 key={keyOf(statusKey(column.value))}
                 className={line >= 0 ? "board-column is-over" : "board-column"}
                 data-testid={`column-${String(statusKey(column.value))}`}
                 onDragOver={(event) => dragOver(event, column)}
-                onDragLeave={(event) => {
-                  if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-                  setSpot((current) => (current?.column === column.value ? null : current));
-                }}
+                onDragLeave={(event) => dragLeave(event, column)}
                 onDrop={(event) => drop(event, column, cardIds, nestedIn(board.tasks, column).map((card) => card.id))}
               >
-                <header data-color-menu={canDo(board, "columnColors") ? "header" : undefined}>
+                <header data-color-menu="header">
                   <h3>
-                    {canDo(board, "columnColors") ? (
-                      <button
-                        type="button"
-                        className={colorFor === column.value ? "column-swatch is-open" : "column-swatch"}
-                        style={{ background: columnTone(column) }}
-                        aria-label={`Color for ${String(column.title)}`}
-                        aria-expanded={colorFor === column.value}
-                        onClick={() => setColorFor((current: unknown) => (current === column.value ? null : column.value))}
-                      />
-                    ) : (
-                      <i style={{ background: columnTone(column) }} />
-                    )}
+                    <button
+                      type="button"
+                      className={colorFor === columnStatus(column.value) ? "column-swatch is-open" : "column-swatch"}
+                      style={{ background: columnTone(column) }}
+                      aria-label={`Color for ${String(column.title)}`}
+                      aria-expanded={colorFor === columnStatus(column.value)}
+                      onClick={() => setColorFor((current) => (current === columnStatus(column.value) ? null : columnStatus(column.value)))}
+                    />
                     {nodeOf(column.title)}
                     <span className="board-column-count">{count}</span>
                   </h3>
+                  <button
+                    type="button"
+                    className="icon board-column-collapse"
+                    aria-label={`Collapse ${String(column.title)}`}
+                    title="Collapse"
+                    onClick={() => boardSettings.setColumn(column, { collapsed: true })}
+                  >
+                    <CollapseIcon />
+                  </button>
                   <button
                     type="button"
                     className="icon board-column-add"
@@ -800,38 +821,15 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
                     <PlusIcon />
                   </button>
                 </header>
-                {canDo(board, "columnColors") ? (
-                  <div
-                    className={colorFor === column.value ? "column-toolbar is-open" : "column-toolbar"}
-                    data-color-menu={colorFor === column.value ? "palette" : undefined}
-                    inert={colorFor === column.value ? undefined : ("" as unknown as boolean)}
-                  >
-                    <div className="column-toolbar-clip">
-                      <div className="column-palette" role="listbox" aria-label={`Colors for ${String(column.title)}`}>
-                        {LIST_COLORS.map(([name, hex]) => (
-                          <button
-                            key={name}
-                            type="button"
-                            role="option"
-                            aria-label={name}
-                            aria-selected={column.colorName === name}
-                            className={column.colorName === name ? "is-picked" : ""}
-                            style={{ background: hex }}
-                            onClick={() => paintColumn(column, name)}
-                          />
-                        ))}
-                        <button
-                          type="button"
-                          role="option"
-                          aria-label="No color"
-                          aria-selected={!column.colorName}
-                          className={!column.colorName ? "is-none is-picked" : "is-none"}
-                          onClick={() => paintColumn(column, null)}
-                        />
-                      </div>
-                    </div>
+                <div
+                  className={colorFor === columnStatus(column.value) ? "column-toolbar is-open" : "column-toolbar"}
+                  data-color-menu={colorFor === columnStatus(column.value) ? "palette" : undefined}
+                  inert={colorFor === columnStatus(column.value) ? undefined : ("" as unknown as boolean)}
+                >
+                  <div className="column-toolbar-clip">
+                    <ColumnPalette title={String(column.title)} picked={column.colorName} onPick={(name) => paintColumn(column, name)} />
                   </div>
-                ) : null}
+                </div>
                 <div className="board-cards">
                   {cards.length === 0 && line < 0 && !open ? <p className="board-empty">No tickets</p> : null}
                   {nested.map(({ task, id, depth, children, parentAway }) => {
@@ -846,7 +844,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
                       >
                         {before ? <div className="board-drop" aria-hidden="true" /> : null}
                         <Card
-                          board={board}
+                          board={arranged}
                           task={task}
                           now={now}
                           selected={sameId(selected, task.id)}
@@ -950,6 +948,22 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
             );
           })}
         </div>
+        {settingsPresence.mounted ? (
+          <div className={settingsOpen ? "ticket-dock is-settings" : "ticket-dock is-settings is-leaving"} inert={!settingsOpen}>
+            <BoardSettingsPane
+              board={arranged}
+              source={board.columns}
+              settings={settings}
+              onSave={boardSettings.save}
+              onReset={async () => {
+                await boardSettings.reset();
+                reloadAll();
+              }}
+              onPaint={paintColumn}
+              onClose={() => setSettingsOpen(false)}
+            />
+          </div>
+        ) : null}
         {/* While another ticket loads, the last one stays in place, dimmed and out of reach. */}
         {ticketPresence.mounted ? (
           <div
@@ -964,7 +978,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
               expanded={expanded}
               onExpand={() => expand(!expanded)}
               detail={pane}
-              board={board}
+              board={arranged}
               cwd={cwd}
               chats={chats}
               call={call}
@@ -1477,5 +1491,34 @@ function SearchIcon() {
       <circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
       <path d="M9.2 9.2 12 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
+  );
+}
+
+interface CollapsedColumnProps {
+  column: BoardColumn;
+  count: number;
+  over: boolean;
+  onExpand: () => void;
+  onDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDragLeave: (event: DragEvent<HTMLElement>) => void;
+  onDrop: (event: DragEvent<HTMLElement>) => void;
+}
+
+function CollapsedColumn({ column, count, over, onExpand, onDragOver, onDragLeave, onDrop }: CollapsedColumnProps) {
+  const title = String(column.title ?? "");
+  return (
+    <section
+      className={over ? "board-column is-collapsed is-over" : "board-column is-collapsed"}
+      data-testid={`column-${statusKey(column.value)}`}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <button type="button" className="board-column-strip" aria-label={`Expand ${title}, ${count === 1 ? "1 ticket" : `${count} tickets`}`} title={`Expand ${title}`} onClick={onExpand}>
+        <i style={{ background: columnTone(column) }} />
+        <span className="board-column-strip-title">{nodeOf(column.title)}</span>
+        <span className="board-column-count">{count}</span>
+      </button>
+    </section>
   );
 }

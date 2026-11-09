@@ -18,9 +18,11 @@ import { goneFolder, goneWorktree, type GoneFolder } from "./folder/goneFolder.t
 import { addFolder, applyTitles, arrangeChats, arrangeSidebar, folderNamed, moveToFolder, noteChat, currentSidebar, readSidebar, rowsWithCatalog, writeSidebar, type SidebarState } from "./sidebar/sidebar.ts";
 import { folderTools, type ChatFolders } from "./sidebar/folderTools.ts";
 import { rulesForBoard } from "./board/boardRules.ts";
+import { readSettings } from "./board/boardSettingsFile.ts";
 import { createSurfaces, type Surfaces } from "./surface.ts";
 import { boundFolder, presentTickets, readTickets } from "./board/tickets.ts";
 import { sameMarks, updateUnread } from "./chat/unread.ts";
+import { planTools, type PlanHost } from "./chat/planTool.ts";
 import { chatsToClose, isBusy } from "./chat/idleChats.ts";
 import { contextWindows } from "./chat/context.ts";
 import { readServiceNotices } from "./chat/announcements.ts";
@@ -243,7 +245,7 @@ export interface Host {
   createWorktree(folder: string, gitRef: string, providerId: string, options?: Pick<WorktreeOptions, "name" | "branch">): Promise<CreatedWorktree>;
 }
 
-export function createApp({ providers, desk, voice, quietVolume = createQuietVolume(), devices, port, token, paths, savedUsage = createUsageStore(paths.usage), harnessCommands = createHarnessCommands(paths.harnessCommands), sak = createHostSak(paths.sak), cwd, suggestions = createTaskSuggestions(paths.suggestions), browser = createBrowser(paths.browserPages), simulator = createSimulator({ logDir: paths.simulatorLogs }), builds = createBuilds({ dir: paths.simulatorBuilds }), hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), suggestions, browser, simulator, builds, devices }), { builder: builderFolder(paths.chatHome) }), terminals = createTerminals(), remote, routines: routineOptions = {}, appSettings = createAppSettings(paths.appSettings), keepAwake }: AppOptions): App {
+export function createApp({ providers, desk, voice, quietVolume = createQuietVolume(), devices, port, token, paths, savedUsage = createUsageStore(paths.usage), harnessCommands = createHarnessCommands(paths.harnessCommands), sak = createHostSak(paths.sak), cwd, suggestions = createTaskSuggestions(paths.suggestions), browser = createBrowser(paths.browserPages), simulator = createSimulator({ logDir: paths.simulatorLogs }), builds = createBuilds({ dir: paths.simulatorBuilds }), hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, browser, simulator, builds, devices }), { builder: builderFolder(paths.chatHome) }), terminals = createTerminals(), remote, routines: routineOptions = {}, appSettings = createAppSettings(paths.appSettings), keepAwake }: AppOptions): App {
   const chatRecords: ChatRecords = providers.records;
   const surfaces = createSurfaces(desk, { alive: (id) => Boolean(providers.getSession(id)) });
   const locateProject = createProjectLocator();
@@ -271,7 +273,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
       terminals: {},
       remote: remote ? remote.state() : REMOTE_OFF,
       routines: { scheduler: { here: false, takesPart: false, port: null }, desktop: false, list: [] },
-      app: { desktop: Boolean(keepAwake), keepAwake: false },
+      app: { desktop: Boolean(keepAwake), keepAwake: false, planTool: false },
       reveal: null,
     },
     sidebarState: readSidebar(paths.sidebar),
@@ -329,10 +331,11 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
   function followAppSettings() {
     const settings = appSettings.read();
     holdAwake(settings.keepAwake);
-    if (settings.keepAwake !== store.snapshot.app.keepAwake) publish({ app: { desktop: Boolean(keepAwake), keepAwake: settings.keepAwake } });
+    const shown = store.snapshot.app;
+    if (settings.keepAwake !== shown.keepAwake || settings.planTool !== shown.planTool) publish({ app: { desktop: Boolean(keepAwake), ...settings } });
   }
 
-  store.snapshot = { ...store.snapshot, app: { desktop: Boolean(keepAwake), keepAwake: appSettings.read().keepAwake } };
+  store.snapshot = { ...store.snapshot, app: { desktop: Boolean(keepAwake), ...appSettings.read() } };
   holdAwake(store.snapshot.app.keepAwake);
 
   // A running turn changes its session with every streamed chunk, and each publish presents every open
@@ -519,7 +522,8 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
 
   function sessionRules(folder: string, ticket?: BoardTicket | null) {
     const state = readTickets(paths.tickets);
-    return rulesForBoard(state, boundFolder(state, folder, checkoutOf), `http://127.0.0.1:${port}`, ticket, paths.launchToken(port));
+    const bound = boundFolder(state, folder, checkoutOf);
+    return rulesForBoard(state, bound, `http://127.0.0.1:${port}`, ticket, paths.launchToken(port), readSettings(paths.tickets, bound));
   }
 
   // A provider restarts an agent that exits. If it gives up, the next call here starts it again.
@@ -1107,11 +1111,12 @@ export function builderFolder(chatHome: string) {
   return (cwd: string) => canonicalCwd(cwd) !== canonicalCwd(chatHome);
 }
 
-// The host's MCP tool groups: task suggestions, the chat id, the browser pane, the simulators, pr_status, chat folders
-// and routines.
-export function hostToolGroups({ sessionOf, suggestions, browser, simulator, builds, devices, folders, routines }: { sessionOf: (id: string) => SessionState | null | undefined; suggestions: TaskSuggestions; browser: Browser; simulator: Simulator; builds: Builds; devices: Devices; folders?: ChatFolders; routines?: () => RoutineToolHost }) {
+// The host's MCP tool groups: the plan, task suggestions, the chat id, the browser pane, the simulators, pr_status,
+// chat folders and routines.
+export function hostToolGroups({ sessionOf, setPlan, planTool, suggestions, browser, simulator, builds, devices, folders, routines }: { sessionOf: (id: string) => SessionState | null | undefined; setPlan: PlanHost["setPlan"]; planTool: () => boolean; suggestions: TaskSuggestions; browser: Browser; simulator: Simulator; builds: Builds; devices: Devices; folders?: ChatFolders; routines?: () => RoutineToolHost }) {
   const modeOf = (id: string) => sessionOf(id)?.modeId ?? null;
   return [
+    { ...planTools({ sessionOf, setPlan }), enabled: planTool },
     suggestTools(suggestions),
     chatIdTools(),
     browserTools(browser, { modeOf }),

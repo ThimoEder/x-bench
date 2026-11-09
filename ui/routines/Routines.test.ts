@@ -74,7 +74,7 @@ async function render(routines: RoutinesView, refuse: Record<string, string> = {
     root.render(
       createElement(Routines, {
         routines,
-        app: { desktop: true, keepAwake: false },
+        app: { desktop: true, keepAwake: false, planTool: false },
         projects,
         catalog: fallbackCatalog,
         providers,

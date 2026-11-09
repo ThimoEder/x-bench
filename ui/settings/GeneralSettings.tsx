@@ -1,5 +1,5 @@
 import type { ProviderView, Snapshot } from "../../server/snapshot.ts";
-import { KeepAwakeSwitch } from "./HostSettings.tsx";
+import { KeepAwakeSwitch, PlanToolSwitch } from "./HostSettings.tsx";
 import type { Colors, ThemeSetting } from "../theme.ts";
 import { FOLLOW_UP_NAMES, followUpChoices, useFollowUp, type FollowUp } from "../chat/useFollowUp.ts";
 import { useChatRise } from "../chat/chatRise.ts";
@@ -150,6 +150,17 @@ export function GeneralSettings({ providers, app, call }: { providers: ProviderV
             <KeepAwakeSwitch app={app} call={call} />
           </div>
           <p className="provider-hint">Every X Bench window on this Mac shares this setting. The Routines page has the same switch.</p>
+        </section>
+      ) : null}
+      {call && app ? (
+        <section className="provider-block" data-testid="experimental-block">
+          <header className="provider-head">
+            <h3>Experimental</h3>
+          </header>
+          <div className="routine-switches">
+            <PlanToolSwitch app={app} call={call} />
+          </div>
+          <p className="provider-hint">Features still being tried out. They can change or go away.</p>
         </section>
       ) : null}
     </div>

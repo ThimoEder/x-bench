@@ -30,10 +30,12 @@ export interface McpContext {
   sessionId: string | null;
   // Aborted when the harness drops the request.
   signal: AbortSignal;
+  // The _meta of a tools/call, where a harness may name the tool call it makes.
+  meta?: Record<string, unknown>;
 }
 
 export interface McpTool {
-  spec: { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations?: Record<string, boolean> };
+  spec: { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations?: Record<string, boolean>; _meta?: Record<string, unknown> };
   // Runs without the harness's own permission prompt.
   trusted?: boolean;
   call(args: unknown, context: McpContext): ToolResult | Promise<ToolResult>;
@@ -45,6 +47,8 @@ export interface McpGroup {
   tools: McpTool[];
   // Drives a dock tab, which only builder chats show.
   builderOnly?: boolean;
+  // A group behind a setting. A chat gets it when this is true as the chat opens.
+  enabled?: () => boolean;
 }
 
 export interface HostTools {
@@ -79,7 +83,7 @@ export function createHostTools(groups: McpGroup[], { builder = () => true }: Ho
     sessionTools({ port, token }) {
       return {
         grant(sessionId, cwd): SessionToolGrant {
-          const shown = builder(cwd) ? groups : groups.filter((group) => !group.builderOnly);
+          const shown = groups.filter((group) => (builder(cwd) || !group.builderOnly) && (group.enabled?.() ?? true));
           const tools = shown.flatMap((group) => group.tools);
           const key = randomBytes(18).toString("base64url");
           claim(key, sessionId, tools);
@@ -113,7 +117,7 @@ const Message = fields({
   params: z.unknown().optional(),
 });
 
-const CallParams = fields({ name: z.unknown().optional(), arguments: z.unknown().optional() });
+const CallParams = fields({ name: z.unknown().optional(), arguments: z.unknown().optional(), _meta: z.unknown().optional() });
 
 export type JsonRpcReply = { jsonrpc: "2.0"; id: string | number | null; result?: unknown; error?: { code: number; message: string } };
 
@@ -147,7 +151,7 @@ export async function answerMcp(message: unknown, tools: McpTool[], context: Mcp
       const tool = tools.find((item) => item.spec.name === call.name);
       if (!tool) return rpcError(id, -32602, `Unknown tool: ${String(call.name)}`);
       try {
-        return { jsonrpc: "2.0", id, result: await tool.call(call.arguments, context) };
+        return { jsonrpc: "2.0", id, result: await tool.call(call.arguments, { ...context, meta: isRecord(call._meta) ? call._meta : {} }) };
       } catch (error) {
         return { jsonrpc: "2.0", id, result: toolText(error instanceof Error ? error.message : String(error), true) };
       }

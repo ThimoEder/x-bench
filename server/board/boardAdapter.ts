@@ -94,6 +94,7 @@ export interface MoveExtra {
 export interface BoardFiles {
   tickets: string;
   connections: Record<BoardProvider, string>;
+  savedBoards?: string;
 }
 
 // What an adapter gets from the router for one request.
@@ -347,10 +348,10 @@ export function needsFields(message: string, code: unknown, fields: MoveField[])
   return Object.assign(boardError(409, message, code), { fields });
 }
 
-export function boardFailure(error: unknown): { status: number; body: { error: unknown; code: unknown; fields?: unknown[] } } {
+export function boardFailure(error: unknown): { status: number; body: { error: unknown; code: unknown; fields?: unknown[]; address?: string } } {
   const failure = isRecord(error) ? error : {};
   const status = Number(failure.status) || 502;
-  const body = { error: failure.message, code: failure.code || null };
+  const body = { error: failure.message, code: failure.code || null, ...(typeof failure.address === "string" ? { address: failure.address } : {}) };
   return { status, body: Array.isArray(failure.fields) ? { ...body, fields: failure.fields } : body };
 }
 

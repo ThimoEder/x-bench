@@ -32,11 +32,11 @@ const board = {
   url: "https://example.atlassian.net/secure/RapidBoard.jspa?rapidView=1",
 };
 
-async function mount(cwd: string, url = board.url) {
+async function mount(cwd: string, url = board.url, call: (path: string) => Promise<unknown> = async () => ({ ...board, url })) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
-  const props = { cwd, chats: [], call: async () => ({ ...board, url }), onOpenSession: noop, onPick: noop, onWorktree: noop } as unknown as ProjectBoardProps;
+  const props = { cwd, chats: [], call, onOpenSession: noop, onPick: noop, onWorktree: noop } as unknown as ProjectBoardProps;
   await act(async () => {
     root.render(createElement(ProjectBoard, props));
     await wait(10);
@@ -94,6 +94,139 @@ test("the person picked on a board comes back on that board in any folder, and a
   const other = await mount("/repo", "https://example.atlassian.net/secure/RapidBoard.jspa?rapidView=2");
   assert.equal(titles(other.container).length, 4);
   act(() => other.root.unmount());
+});
+
+test("a board draws the host's saved board while it loads in full, and when opened again draws at once and asks only whether it changed", async () => {
+  localStorage.clear();
+  const asked: string[] = [];
+  let answer: (value: unknown) => void = noop;
+  const call = (path: string) => {
+    asked.push(path);
+    if (path.includes("saved=1")) return Promise.resolve({ ...board, tasks: board.tasks.slice(0, 1), activity: "" });
+    return new Promise((resolve) => {
+      answer = resolve;
+    });
+  };
+  const first = await mount("/kept", board.url, call);
+  assert.deepEqual(titles(first.container), ["Mine"]);
+  assert.doesNotMatch(asked.at(-1) ?? "", /activity=|saved=/);
+  await act(async () => {
+    answer({ ...board, activity: "new" });
+    await wait(10);
+  });
+  assert.equal(titles(first.container).length, 4);
+  act(() => first.root.unmount());
+
+  asked.length = 0;
+  const again = await mount("/kept", board.url, call);
+  assert.equal(titles(again.container).length, 4);
+  assert.equal(asked.length, 1);
+  assert.match(asked[0] ?? "", /activity=new/);
+  act(() => again.root.unmount());
+});
+
+test("a kept board stays on screen when its refresh fails", async () => {
+  localStorage.clear();
+  const seed = await mount("/refused", board.url, async () => ({ ...board, activity: "same" }));
+  act(() => seed.root.unmount());
+
+  let refuse = true;
+  const call = async () => {
+    if (refuse) throw new Error("Jira is not reachable");
+    return { unchanged: true, activity: "same" };
+  };
+  const again = await mount("/refused", board.url, call);
+  assert.equal(titles(again.container).length, 4);
+  assert.doesNotMatch(again.container.textContent ?? "", /Jira is not reachable/);
+  refuse = false;
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+    await wait(10);
+  });
+  assert.equal(titles(again.container).length, 4);
+  act(() => again.root.unmount());
+});
+
+test("a load that ends after the board was left is the board it opens on next", async () => {
+  localStorage.clear();
+  let answer: (value: unknown) => void = noop;
+  const slow = (path: string) => (path.includes("saved=1") ? Promise.resolve({}) : new Promise((resolve) => {
+    answer = resolve;
+  }));
+  const first = await mount("/left", board.url, slow);
+  act(() => first.root.unmount());
+  answer({ ...board, activity: "late" });
+  await wait(10);
+
+  const asked: string[] = [];
+  const again = await mount("/left", board.url, async (path) => {
+    asked.push(path);
+    return { unchanged: true, activity: "late" };
+  });
+  assert.equal(titles(again.container).length, 4);
+  assert.match(asked[0] ?? "", /activity=late/);
+  act(() => again.root.unmount());
+});
+
+test("the reload button loads the whole board and tells when it was last checked", async () => {
+  localStorage.clear();
+  const asked: string[] = [];
+  const mounted = await mount("/reload", board.url, async (path) => {
+    asked.push(path);
+    return path.includes("activity=") ? { unchanged: true, activity: "stamp" } : { ...board, activity: "stamp" };
+  });
+  const reload = mounted.container.querySelector<HTMLButtonElement>('button[aria-label="Reload the board"]')!;
+  assert.match(reload.title, /^Checked at \d\d:\d\d · Reload$/);
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+    await wait(10);
+  });
+  assert.match(asked.at(-1) ?? "", /activity=stamp/);
+  await act(async () => {
+    click(reload);
+    await wait(10);
+  });
+  assert.doesNotMatch(asked.at(-1) ?? "", /activity=/);
+  assert.equal(reload.classList.contains("is-busy"), false);
+  act(() => mounted.root.unmount());
+});
+
+test("a board that fails to load shows the error, and the address the host names for it", async () => {
+  localStorage.clear();
+  const failed = await mount("/unreachable", board.url, async (path) => {
+    if (path.includes("saved=1")) return {};
+    throw Object.assign(new Error("The local board is not reachable"), { reply: { address: "http://127.0.0.1:4345" } });
+  });
+  assert.equal(failed.container.querySelector(".board-missing p")?.textContent, "The local board is not reachable");
+  assert.equal(failed.container.querySelector(".board-address")?.textContent, "http://127.0.0.1:4345");
+  act(() => failed.root.unmount());
+});
+
+test("an older load that ends after a newer one leaves the newer board kept", async () => {
+  localStorage.clear();
+  const answers: ((value: unknown) => void)[] = [];
+  const slow = (path: string) => (path.includes("saved=1") ? Promise.resolve({}) : new Promise((resolve) => {
+    answers.push(resolve);
+  }));
+  const first = await mount("/order", board.url, slow);
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+    await wait(10);
+  });
+  assert.equal(answers.length, 2);
+  act(() => first.root.unmount());
+  answers[1]?.({ ...board, activity: "newer" });
+  await wait(5);
+  answers[0]?.({ ...board, activity: "older" });
+  await wait(5);
+
+  const asked: string[] = [];
+  const again = await mount("/order", board.url, async (path) => {
+    asked.push(path);
+    return { unchanged: true, activity: "newer" };
+  });
+  assert.match(asked[0] ?? "", /activity=newer/);
+  act(() => again.root.unmount());
 });
 
 test("a ticket opens at once on a skeleton, which its detail replaces once it comes", async () => {

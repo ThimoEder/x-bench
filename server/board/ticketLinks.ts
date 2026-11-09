@@ -10,6 +10,7 @@ import {
   sameTicket,
   unlinkTicket,
   writeTickets,
+  type ColorOf,
   type SessionTicketLink,
 } from "./tickets.ts";
 import { workingChatId, type ChatActivity } from "../chat/workingChat.ts";
@@ -35,11 +36,11 @@ export interface StoredLink {
 }
 
 // Links the chat to the ticket when sessionId is set, and names the board link for the ticket.
-export function storeLink(services: LinkServices, folder: string, sessionId: string, task: unknown): StoredLink {
+export function storeLink(services: LinkServices, folder: string, sessionId: string, task: unknown, colorOf?: ColorOf): StoredLink {
   const taskRef = TaskRef.parse(task).id;
   let link = null;
   if (sessionId) {
-    const next = linkTicket(readTickets(services.tickets), { sessionId, task });
+    const next = linkTicket(readTickets(services.tickets), { sessionId, task }, colorOf);
     writeTickets(next, services.tickets);
     link = next.links.find((item) => item.sessionId === sessionId && sameTicket(item.taskId, taskRef)) || null;
     if (link?.title) services.nameChat?.(sessionId, link.title);
@@ -80,27 +81,27 @@ export function chatIdTools(): McpGroup {
 }
 
 // Links a thread opened from a card to that card.
-export function linkThread(services: LinkServices, sessionId: string, task: unknown, taskId: unknown): SessionTicketLink | null {
-  const next = linkTicket(readTickets(services.tickets), { sessionId, task });
+export function linkThread(services: LinkServices, sessionId: string, task: unknown, taskId: unknown, colorOf?: ColorOf): SessionTicketLink | null {
+  const next = linkTicket(readTickets(services.tickets), { sessionId, task }, colorOf);
   writeTickets(next, services.tickets);
   return next.links.find((item) => item.sessionId === sessionId && sameTicket(item.taskId, taskId)) || null;
 }
 
 // Refreshes the linked text of a ticket that was just changed.
-export function rememberTask(services: LinkServices, task: unknown): void {
+export function rememberTask(services: LinkServices, task: unknown, colorOf?: ColorOf): void {
   const stored = readTickets(services.tickets);
-  const refreshed = refreshLinkText(stored, [task]);
+  const refreshed = refreshLinkText(stored, [task], colorOf);
   if (refreshed !== stored) {
     writeTickets(refreshed, services.tickets);
     services.publish?.();
   }
 }
 
-// After a board load: keep the binding's title and columns, and the linked tickets' text, current.
-export function refreshBoardLinks(services: LinkServices, loaded: LoadedBoard): void {
+// After a board load: keep the binding's title and columns, and the linked tickets' text and column color, current.
+export function refreshBoardLinks(services: LinkServices, loaded: LoadedBoard, colorOf?: ColorOf): void {
   if (!("tasks" in loaded.view)) return;
   const stored = readTickets(services.tickets);
-  const refreshed = refreshLinkText(loaded.rebind ? loaded.rebind(stored) : stored, loaded.view.tasks);
+  const refreshed = refreshLinkText(loaded.rebind ? loaded.rebind(stored) : stored, loaded.view.tasks, colorOf);
   if (JSON.stringify(refreshed) !== JSON.stringify(stored)) {
     writeTickets(refreshed, services.tickets);
     services.publish?.();

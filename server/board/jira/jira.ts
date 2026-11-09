@@ -349,12 +349,15 @@ export async function readJiraBoard(connection: JiraConnection, boardId: unknown
   requireConnection(connection);
   const id = boardNumber(boardId);
   if (id === null) throw jiraError(400, "Choose a Jira board");
-  const board = Board.parse(await jiraFetch(connection, "GET", `/rest/agile/1.0/board/${id}`, options));
+  const [board, config] = await Promise.all([
+    jiraFetch(connection, "GET", `/rest/agile/1.0/board/${id}`, options).then((reply) => Board.parse(reply)),
+    jiraFetch(connection, "GET", `/rest/agile/1.0/board/${id}/configuration`, options).then((reply) => Configuration.parse(reply)),
+  ]);
   return {
     boardId: id,
     title: clip(board.name, 200) || String(id),
     projectKey: projectKeyOf(board.location.projectKey),
-    columns: await jiraColumns(connection, id, options),
+    columns: presentColumns(config.columnConfig.columns),
   };
 }
 
@@ -385,8 +388,9 @@ export async function loadJiraBoard(connection: JiraConnection, boardId: unknown
   requireConnection(connection);
   const id = boardNumber(boardId);
   if (id === null) throw jiraError(400, "Choose a Jira board");
-  const info = await readJiraBoard(connection, id, options);
-  const activity = await activityStamp(connection, info, options);
+  const [info, latest] = await Promise.all([readJiraBoard(connection, id, options), latestChange(connection, id, options)]);
+  // The board's name and columns, its newest ticket change and how many tickets it shows. A load with the same stamp is skipped.
+  const activity = createHash("sha256").update(JSON.stringify([info, latest.total, latest.key, latest.updated])).digest("hex").slice(0, 32);
   if (options.activity && options.activity === activity) {
     return { payload: { unchanged: true, provider: "jira", activity }, info: null };
   }
@@ -928,30 +932,44 @@ async function allPages(
   query: Record<string, unknown>,
   options?: JiraCallOptions,
 ): Promise<{ items: unknown[]; truncated: boolean }> {
+  const pageAt = async (startAt: number) => Page.parse(await jiraFetch(connection, "GET", jiraPath, {
+    ...options,
+    query: { ...query, startAt, maxResults: PAGE },
+  }));
   const items: unknown[] = [];
+  const ended = (complete: boolean) => (
+    complete || items.length >= MOST_ITEMS ? { items: items.slice(0, MOST_ITEMS), truncated: !complete || items.length > MOST_ITEMS } : null
+  );
+  let ahead = true;
   for (;;) {
-    const page = Page.parse(await jiraFetch(connection, "GET", jiraPath, {
-      ...options,
-      query: { ...query, startAt: items.length, maxResults: PAGE },
-    }));
+    const page = await pageAt(items.length);
     const batch = page[field] ?? [];
     items.push(...batch);
     const total = Number(page.total);
-    if (batch.length === 0 || page.isLast === true || (Number.isFinite(total) && items.length >= total)) return { items, truncated: false };
-    if (items.length >= MOST_ITEMS) return { items: items.slice(0, MOST_ITEMS), truncated: true };
+    const end = ended(batch.length === 0 || page.isLast === true || (Number.isFinite(total) && items.length >= total));
+    if (end) return end;
+    if (!ahead || !Number.isFinite(total)) continue;
+    ahead = false;
+    const starts: number[] = [];
+    for (let start = items.length; start < Math.min(total, MOST_ITEMS); start += batch.length) starts.push(start);
+    const pages = await Promise.all(starts.map(pageAt));
+    for (const [index, rest] of pages.entries()) {
+      // A short page shifts every later start, so from there the loop reads on in turn.
+      if (items.length !== starts[index]) break;
+      items.push(...(rest[field] ?? []));
+    }
+    const read = ended(items.length >= total);
+    if (read) return read;
   }
 }
 
-// The board's name and columns, its newest ticket change and how many tickets it shows. A board load with
-// the same stamp is skipped.
-async function activityStamp(connection: JiraConnection, info: JiraBoardInfo, options?: JiraCallOptions): Promise<string> {
-  const page = Page.parse(await jiraFetch(connection, "GET", `/rest/agile/1.0/board/${info.boardId}/issue`, {
+async function latestChange(connection: JiraConnection, boardId: number, options?: JiraCallOptions): Promise<{ total: unknown; key: unknown; updated: unknown }> {
+  const page = Page.parse(await jiraFetch(connection, "GET", `/rest/agile/1.0/board/${boardId}/issue`, {
     ...options,
     query: { jql: `${BOARD_SCOPE} ORDER BY updated DESC`, fields: "updated", maxResults: 1 },
   }));
   const latest = Issue.parse(page.issues?.[0]);
-  const seen = [info, page.total ?? "", latest.key ?? "", latest.fields.updated ?? ""];
-  return createHash("sha256").update(JSON.stringify(seen)).digest("hex").slice(0, 32);
+  return { total: page.total ?? "", key: latest.key ?? "", updated: latest.fields.updated ?? "" };
 }
 
 function pickResolution(values: unknown[] | undefined): { id: string } | null {

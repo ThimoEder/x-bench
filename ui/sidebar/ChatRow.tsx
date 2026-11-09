@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { ProviderView, SidebarProject, SidebarSession } from "../../server/snapshot.ts";
 import { RevealTitle } from "../chat/RevealTitle.tsx";
 import { ProviderMark } from "../chat/messages/providerMark.tsx";
-import { statusTone, ticketStatus } from "../board/ticketStatus.ts";
+import { ticketTone } from "../board/ticketStatus.ts";
 import type { WorktreeBody } from "../git/WorktreeDiscard.tsx";
 import { FloatingMenu } from "./FloatingMenu.tsx";
 import { ArchiveIcon, PinIcon, WorktreeIcon } from "./icons.tsx";
@@ -42,7 +42,7 @@ export function ChatRow({ project, session, paging, list }: ChatRowProps) {
   const { attention, working, unread, rename, menu, pattern, providerShown } = list;
   const mark = attention.has(session.id) ? "attention" : working.has(session.id) ? "working" : unread.has(session.id) ? "unread" : "";
   const links = list.tickets?.[session.id] || [];
-  const tone = statusTone(ticketStatus(links));
+  const tone = ticketTone(links);
   const rowClass = ["session-row", mark, links.length ? "ticket" : "", session.archived ? "is-archived" : "", session.pinned ? "is-pinned" : ""].filter(Boolean).join(" ");
   const linkClass = ["session-link", list.openIds.has(session.id) ? "active" : "", session.archived ? "is-archived" : "", session.gone ? "is-gone" : ""].filter(Boolean).join(" ");
   const renaming = rename.id === session.id;

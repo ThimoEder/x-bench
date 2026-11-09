@@ -164,6 +164,8 @@ export interface ClaudeRunSettings {
 export interface ClaudeOptions extends AcpOptions, Omit<ClaudeRunSettings, "problem"> {
   // The current settings. Without it, the fields above are used.
   readSettings?: () => ClaudeRunSettings;
+  // True while the host's own plan tool keeps the step list.
+  hostPlans?: () => boolean;
   // Tests run a fake adapter: the command and its arguments.
   command?: string;
   args?: string[];
@@ -226,6 +228,8 @@ export class ClaudeProvider extends AdapterClient implements Provider {
   private heldNotes = new Map<string, string[]>();
   // How often each session's side history was cleared, so an answer still on its way is not saved after a clear.
   private sideClears = new Map<string, number>();
+  // The command the adapter started by itself, by session, while no prompt of this app's was open.
+  private ownCommands = new Map<string, string>();
 
   async detect(): Promise<Detected> {
     const adapter = this.options.command ? this.options.command : adapterEntry();
@@ -383,13 +387,13 @@ export class ClaudeProvider extends AdapterClient implements Provider {
     return agent.transport;
   }
 
-  // Headless Claude Code leaves its todo tools off, and they feed the plan the shelf shows.
+  // Headless Claude Code leaves its todo tools off, and they feed the plan the shelf shows unless the host's plan tool does.
   private environment(settings = this.settings()): NodeJS.ProcessEnv {
     const env = adapterEnvironment({
       ...(settings.configDir ? { CLAUDE_CONFIG_DIR: settings.configDir } : {}),
       ...(settings.executable ? { CLAUDE_CODE_EXECUTABLE: settings.executable } : {}),
     });
-    env.CLAUDE_CODE_ENABLE_TODO_TOOLS ||= "1";
+    if (!this.options.hostPlans?.()) env.CLAUDE_CODE_ENABLE_TODO_TOOLS ||= "1";
     return env;
   }
 
@@ -622,8 +626,9 @@ export class ClaudeProvider extends AdapterClient implements Provider {
       const id = frame.command_uuid;
       const state = DELIVERY_OF_LIFECYCLE[frame.state ?? ""];
       if (!sessionId || !this.sessionMap.has(sessionId) || frame.type !== "command_lifecycle" || !id || !state) return true;
-      this.waitingSteers.delete(id);
+      const steered = this.waitingSteers.delete(id);
       this.apply(sessionId, { type: "delivery", id, state });
+      this.noteOwnCommand(sessionId, id, frame.state, steered);
       return true;
     }
     if (message.method === "session/update") {
@@ -691,6 +696,7 @@ export class ClaudeProvider extends AdapterClient implements Provider {
   override async forgetSession(sessionId: string) {
     this.heldNotes.delete(sessionId);
     this.sideClears.delete(sessionId);
+    this.ownCommands.delete(sessionId);
     this.forgetSteers(sessionId);
     await super.forgetSession(sessionId);
   }
@@ -707,6 +713,18 @@ export class ClaudeProvider extends AdapterClient implements Provider {
         this.apply(sessionId, { type: "turn-finished", stopReason: "end_turn" });
       }
     });
+  }
+
+  // The adapter also sends Claude a command of its own, such as /compact before an idle chat's prompt cache
+  // expires. That turn sends no cost, so it ends on the completed frame of the command it started with. A
+  // prompt's completed frame comes after its turn has ended, so only a command started while none was open counts.
+  private noteOwnCommand(sessionId: string, id: string, state: string | undefined, steered: boolean) {
+    if (state === "started" && !steered && !this.ownsTurn(sessionId)) this.ownCommands.set(sessionId, id);
+    if (state !== "completed" || this.ownCommands.get(sessionId) !== id) return;
+    this.ownCommands.delete(sessionId);
+    if (this.sessionMap.get(sessionId)?.status === "running" && !this.ownsTurn(sessionId)) {
+      this.apply(sessionId, { type: "turn-finished", stopReason: "end_turn" });
+    }
   }
 
   private noteRateLimit(update: UsageFields) {

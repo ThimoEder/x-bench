@@ -25,7 +25,7 @@ export function boardRoutes(host: Host): Route[] {
       res.end(file.bytes);
     },
     // paths names each board source's connection file by its provider id.
-    files: { tickets: paths.tickets, connections: paths },
+    files: { tickets: paths.tickets, connections: paths, savedBoards: paths.savedBoards },
     origin: `http://127.0.0.1:${port}`,
     isDirectory,
     isChatHome(folder: string) {

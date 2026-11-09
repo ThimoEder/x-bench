@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -10,7 +10,7 @@ import { boardFailure, type BoardFetch } from "../boardAdapter.ts";
 import { listAllTasks, readConnection, sakFetch, saveConnection, writeConnection } from "./sakClient.ts";
 import { handleBoard, labelIdOf, type BoardContext, type BoardThreadRequest, type PageBody } from "../board.ts";
 import { canonicalCwd } from "../../chat/sessions.ts";
-import { readTickets } from "../tickets.ts";
+import { linkTicket, readTickets, writeTickets } from "../tickets.ts";
 import type { SakBinding } from "./sakSource.ts";
 
 const statusDef = {
@@ -113,7 +113,7 @@ async function fakeSak(state: FakeState) {
       return json(res, 201, { task_id: body.other_task_id, kind: body.kind });
     }
     if (req.method === "DELETE" && /^\/api\/tasks\/\d+$/.test(url.pathname)) return json(res, 200, { ok: true });
-    if (req.method === "GET" && /^\/api\/tasks\/\d+\/comments$/.test(url.pathname)) return json(res, 200, []);
+    if (req.method === "GET" && /^\/api\/tasks\/\d+\/comments$/.test(url.pathname)) return json(res, 200, state.comment ? [{ id: 1, body: state.comment }] : []);
     if (req.method === "POST" && /^\/api\/tasks\/\d+\/comments$/.test(url.pathname)) {
       state.comment = body.body;
       return json(res, 201, { id: 1, task_id: Number(url.pathname.split("/")[3]), body: body.body });
@@ -192,7 +192,7 @@ function harness(baseUrl: string, root: string) {
   writeConnection({ baseUrl, token: "sak_testtoken" }, connection);
   const sent: Sent[] = [];
   const ctx: BoardContext = {
-    files: { tickets, connections: { sak: connection, trello: path.join(root, "trello.json"), jira: path.join(root, "jira.json") } },
+    files: { tickets, connections: { sak: connection, trello: path.join(root, "trello.json"), jira: path.join(root, "jira.json") }, savedBoards: path.join(root, "saved") },
     isDirectory: () => true,
     publish() {},
     sendJson(_res, status, body) {
@@ -244,18 +244,19 @@ test("a SAK that times out, cannot be reached or sends a readable code reads as 
   const thrown = (error: Error): BoardFetch => async () => {
     throw error;
   };
-  const cases: [BoardFetch, number, string][] = [
-    [async () => new Response(JSON.stringify({ error: "invalid" }), { status: 400 }), 400, "invalid"],
-    [thrown(Object.assign(new Error("aborted"), { name: "AbortError" })), 504, "The local board did not answer"],
-    [thrown(new TypeError("fetch failed")), 502, "The local board is not reachable"],
+  const cases: [BoardFetch, number, string, string | undefined][] = [
+    [async () => new Response(JSON.stringify({ error: "invalid" }), { status: 400 }), 400, "invalid", undefined],
+    [thrown(Object.assign(new Error("aborted"), { name: "AbortError" })), 504, "The local board did not answer", connection.baseUrl],
+    [thrown(new TypeError("fetch failed")), 502, "The local board is not reachable", connection.baseUrl],
   ];
-  for (const [fetchImpl, status, message] of cases) {
+  for (const [fetchImpl, status, message, address] of cases) {
     const failure = await sakFetch(connection, "GET", "/api/health", undefined, { fetchImpl }).then(
       () => assert.fail("SAK did not fail"),
       (error: unknown) => boardFailure(error),
     );
     assert.equal(failure.status, status);
     assert.equal(failure.body.error, message);
+    assert.equal(failure.body.address, address);
   }
 });
 
@@ -391,6 +392,7 @@ test("a board request pages until the total is covered", async () => {
     await handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}`, "http://127.0.0.1"), {}, kit.ctx);
     assert.equal(kit.sent[0]?.status, 200);
     assert.equal(list(at(kit.sent[0]?.body, "tasks")).length, 250);
+    assert.equal(existsSync(path.join(root, "saved")), false);
     assert.equal(at(kit.sent[0]?.body, "truncated"), false);
     assert.deepEqual(list(at(kit.sent[0]?.body, "columns")).map((column) => at(column, "value")), ["open", "active", "review", "done", null]);
     assert.deepEqual(at(kit.sent[0]?.body, "labels"), []);
@@ -660,7 +662,7 @@ test("a ticket added with labels gets them, a new label keeps its color, and onl
   }
 });
 
-test("a comment keeps its line breaks", async () => {
+test("a comment keeps its line breaks and reads back from the comments route", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "grok-sak-"));
   const state: FakeState = { auth: [], calls: [], tasks: [] };
   const sak = await fakeSak(state);
@@ -670,6 +672,10 @@ test("a comment keeps its line breaks", async () => {
     await handleBoard({ method: "POST" }, {}, new URL("/api/board/tasks/41/comments", "http://127.0.0.1"), { body: `  ${body}\n` }, kit.ctx);
     assert.equal(kit.sent[0]?.status, 201);
     assert.equal(state.comment, body);
+    kit.sent.length = 0;
+    await handleBoard({ method: "GET" }, {}, new URL("/api/board/tasks/41/comments", "http://127.0.0.1"), {}, kit.ctx);
+    assert.equal(kit.sent[0]?.status, 200);
+    assert.equal(at(list(at(kit.sent[0]?.body, "comments"))[0], "body"), body);
     kit.sent.length = 0;
     await handleBoard({ method: "POST" }, {}, new URL("/api/board/tasks/41/comments", "http://127.0.0.1"), { body: " \n " }, kit.ctx);
     assert.equal(kit.sent[0]?.status, 400);
@@ -821,6 +827,78 @@ test("a ticket added from a column lands in it, the status menu lists the other 
     await handleBoard({ method: "DELETE" }, {}, new URL("/api/board/tasks/41/labels/a%2F..", "http://127.0.0.1"), {}, kit.ctx);
     assert.equal(kit.sent[0]?.status, 400);
     assert.equal(state.calls.some((call) => call.startsWith("DELETE /api/tasks/41 ")), false);
+  } finally {
+    sak.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("board settings come with the board, tell open chats, and send a new ticket to the column picked for it", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "grok-sak-"));
+  const state: FakeState = { auth: [], calls: [], tasks: [], created: null };
+  const sak = await fakeSak(state);
+  try {
+    const kit = harness(sak.baseUrl, root);
+    const changed: string[] = [];
+    kit.ctx.bindingChanged = (folder) => changed.push(folder);
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/boards", "http://127.0.0.1"), { cwd: root, projectId: 7 }, kit.ctx);
+    const [folder] = Object.keys(readTickets(kit.tickets).bindings);
+    changed.length = 0;
+    kit.sent.length = 0;
+    const settings = { columns: { done: { hidden: true } }, order: ["review"], moves: { create: { status: "review", title: "review" }, start: null } };
+    await handleBoard({ method: "PUT" }, {}, new URL("/api/board/settings", "http://127.0.0.1"), { cwd: root, settings: { ...settings, moves: {} } }, kit.ctx);
+    assert.deepEqual(changed, [], "the rules name only the moves");
+    kit.sent.length = 0;
+    await handleBoard({ method: "PUT" }, {}, new URL("/api/board/settings", "http://127.0.0.1"), { cwd: root, settings }, kit.ctx);
+    assert.deepEqual(at(kit.sent[0]?.body, "settings"), settings);
+    assert.deepEqual(changed, [folder]);
+    state.calls.length = 0;
+    kit.sent.length = 0;
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/tasks", "http://127.0.0.1"), { cwd: root, title: "Ship" }, kit.ctx);
+    assert.equal(at(kit.sent[0]?.body, "task", "attributes", "status"), "review");
+    assert.ok(state.calls.some((call) => call.startsWith("PUT /api/tasks/41/attributes/status")));
+    state.calls.length = 0;
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/tasks", "http://127.0.0.1"), { cwd: root, title: "Ship", status: null }, kit.ctx);
+    assert.equal(state.calls.at(-1)?.startsWith("DELETE /api/tasks/41/attributes/status"), true, "a ticket added to the column without a status goes there");
+    kit.sent.length = 0;
+    await handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}`, "http://127.0.0.1"), {}, kit.ctx);
+    assert.deepEqual(at(kit.sent[0]?.body, "settings"), settings);
+    kit.sent.length = 0;
+    await handleBoard({ method: "DELETE" }, {}, new URL("/api/board/settings", "http://127.0.0.1"), { cwd: root }, kit.ctx);
+    assert.deepEqual(at(kit.sent[0]?.body, "settings"), { columns: {}, order: [], moves: {} });
+    assert.deepEqual(changed, [folder, folder]);
+    await handleBoard({ method: "PUT" }, {}, new URL("/api/board/settings", "http://127.0.0.1"), { cwd: root, settings }, kit.ctx);
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/boards", "http://127.0.0.1"), { cwd: root, projectId: 7 }, kit.ctx);
+    kit.sent.length = 0;
+    await handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}`, "http://127.0.0.1"), {}, kit.ctx);
+    assert.deepEqual(at(kit.sent[0]?.body, "settings"), { columns: {}, order: [], moves: {} }, "a folder bound again starts without the last board's settings");
+  } finally {
+    sak.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a board load gives a linked chat the color the board settings keep for its ticket's column", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "grok-sak-"));
+  const task = { id: 41, project_id: 7, title: "Ship", attributes: { status: "open" }, labels: [] };
+  const sak = await fakeSak({ auth: [], calls: [], tasks: [task], created: task });
+  try {
+    const kit = harness(sak.baseUrl, root);
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/boards", "http://127.0.0.1"), { cwd: root, projectId: 7 }, kit.ctx);
+    writeTickets(linkTicket(readTickets(kit.tickets), { sessionId: "sess-1", task }), kit.tickets);
+    const load = () => handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}`, "http://127.0.0.1"), {}, kit.ctx);
+    await load();
+    assert.equal(readTickets(kit.tickets).links[0]?.color, undefined);
+    await handleBoard({ method: "PUT" }, {}, new URL("/api/board/settings", "http://127.0.0.1"), { cwd: root, settings: { columns: { open: { color: "purple" }, review: { color: "green" } } } }, kit.ctx);
+    await load();
+    assert.equal(readTickets(kit.tickets).links[0]?.color, "#c377e0");
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/links", "http://127.0.0.1"), { cwd: root, taskId: 41, sessionId: "sess-2" }, kit.ctx);
+    assert.equal(readTickets(kit.tickets).links[1]?.color, "#c377e0", "a link made after the load takes the color at once");
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/move", "http://127.0.0.1"), { cwd: root, taskId: 41, status: "review" }, kit.ctx);
+    assert.deepEqual(readTickets(kit.tickets).links.map((link) => [link.status, link.color]), [["review", "#61bd4f"], ["review", "#61bd4f"]], "a moved ticket takes its new column's color");
+    await handleBoard({ method: "PUT" }, {}, new URL("/api/board/settings", "http://127.0.0.1"), { cwd: root, settings: { columns: { open: { color: "red" } } } }, kit.ctx);
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/links", "http://127.0.0.1"), { cwd: root, taskId: 41, sessionId: "sess-3" }, kit.ctx);
+    assert.equal(readTickets(kit.tickets).links[2]?.color, "#eb5a46", "a link made after a color change takes the new color before any load");
   } finally {
     sak.server.close();
     rmSync(root, { recursive: true, force: true });

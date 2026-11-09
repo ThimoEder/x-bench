@@ -1,12 +1,13 @@
 import { bindingFor } from "./tickets.ts";
+import { NO_SETTINGS, type BoardSettings } from "./boardSettings.ts";
 import { cleanBoardText, stripHidden } from "./boardText.ts";
 import { oneLine, ticketRef, type BoardTicket } from "./sharedRules.ts";
 import { sourceOf } from "./sources.ts";
 
 // tokenFile is where the host keeps its launch token. The rules tell the agent to send it with every request.
-export function rulesForBoard(state: unknown, cwd: unknown, origin: string, ticket?: BoardTicket | null, tokenFile = ""): string {
+export function rulesForBoard(state: unknown, cwd: unknown, origin: string, ticket?: BoardTicket | null, tokenFile = "", settings: BoardSettings = NO_SETTINGS): string {
   const binding = bindingFor(state, cwd);
-  return binding ? sourceOf(binding.provider).rules(origin, binding, ticket, tokenFile) : "";
+  return binding ? sourceOf(binding.provider).rules(origin, binding, ticket, tokenFile, settings) : "";
 }
 
 // The ticket's title as the brief shows it.

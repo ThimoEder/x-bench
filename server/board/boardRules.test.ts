@@ -27,7 +27,7 @@ test("a boarded folder gets the column rules and no ticket name", () => {
   assert.match(rules, /Opening a pull request that is not a draft, or marking a draft pull request ready for review, moves the ticket to Review\. .*\{"taskId":<id>,"status":"review"\}\. A draft pull request leaves the ticket where it is\./);
   assert.match(rules, /A merge, or a commit on main, moves the ticket to Done when the work is clearly finished/);
   assert.match(rules, /status":"done"/);
-  assert.match(rules, /ask whether it should go to Review or Done, and wait for the answer/);
+  assert.match(rules, /ask which column it should move to, and wait for the answer/);
   assert.match(rules, /File a ticket as a sub-task of another with PUT \/api\/board\/tasks\/<id>\/relations and JSON \{"otherTaskId":<parent id>,"kind":"parent"\}/);
   assert.match(rules, /"kind":"blocked_by"/);
   assert.match(rules, /DELETE \/api\/board\/tasks\/<id>\/relations\/<other id>\/<kind>/);
@@ -112,6 +112,23 @@ test("a Trello board without Open or Done names only its Doing list and asks whe
   assert.equal(rules.includes('status":"Done"'), false);
   assert.match(rules, /Starting work on a ticket moves it to Doing\. .*"status":"Doing"/);
   assert.match(rules, /not a draft, .* moves the ticket to In Review\. .*\{"taskId":"<id>","status":"In Review"\}/);
+});
+
+test("the board settings pick the columns the rules name, and the rest are found by name", () => {
+  const jira = { bindings: { "/tmp/app": { provider: "jira", boardId: 9, title: "XB", columns: ["Backlog", "Doing now", "Code Review", "Shipped"] } }, links: [] };
+  const plain = rulesForBoard(jira, "/tmp/app", origin);
+  assert.equal(plain.includes("Starting work"), false);
+  assert.match(plain, /moves the ticket to Code Review\. .*"status":"Code Review"/);
+  assert.match(plain, /asks which column the ticket should move to/);
+  const picked = rulesForBoard(jira, "/tmp/app", origin, null, "", {
+    columns: {},
+    order: [],
+    moves: { create: { status: "Backlog", title: "Backlog" }, start: { status: "Doing now", title: "Doing now" }, review: null, done: { status: "Shipped", title: "Shipped" } },
+  });
+  assert.match(picked, /puts the ticket in Backlog and leaves this chat unlinked/);
+  assert.match(picked, /Starting work on a ticket moves it to Doing now\. .*\{"taskId":"<key>","status":"Doing now"\}/);
+  assert.equal(picked.includes("pull request"), false);
+  assert.match(picked, /moves the ticket to Shipped when the work is clearly finished\. .*"status":"Shipped"/);
 });
 
 test("a card thread starts from the ticket title, description, and note", () => {

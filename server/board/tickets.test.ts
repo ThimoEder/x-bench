@@ -91,6 +91,17 @@ test("a link remembers the ticket status and deleting the ticket clears every ch
   assert.deepEqual(gone.links, []);
 });
 
+test("a link takes its column's color from a board load, and loses it when the ticket moves without one", () => {
+  const linked = linkTicket(emptyTickets(), { sessionId: "sess-1", task: { id: 26, project_id: 3, title: "Ship", attributes: { status: "active" } } });
+  const colorOf = (status: unknown) => (status === "active" ? "#c377e0" : "url(x)");
+  const painted = refreshLinkText(linked, [{ id: 26, title: "Ship", attributes: { status: "active" } }], colorOf);
+  assert.equal(painted.links[0]?.color, "#c377e0");
+  assert.equal(presentTickets(painted).bySession["sess-1"]?.[0]?.color, "#c377e0");
+  assert.equal(refreshLinkText(painted, [{ id: 26, title: "Ship now", attributes: { status: "active" } }]).links[0]?.color, "#c377e0");
+  assert.equal(refreshLinkText(painted, [{ id: 26, title: "Ship", attributes: { status: "review" } }]).links[0]?.color, undefined);
+  assert.equal(refreshLinkText(painted, [{ id: 26, title: "Ship", attributes: { status: "review" } }], colorOf).links[0]?.color, undefined, "only a hex color is kept");
+});
+
 test("a ticket moving from Review to Done offers to archive its chats until each answers", () => {
   const linked = linkTicket(linkTicket(emptyTickets(), { sessionId: "a", task: { id: 5, status: "review" } }), { sessionId: "b", task: { id: 5, status: "review" } });
   const cleanup = (state: unknown) => presentTickets(state).bySession;

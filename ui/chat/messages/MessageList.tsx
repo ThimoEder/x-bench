@@ -34,6 +34,7 @@ import { withToken } from "../../launchToken.ts";
 import { desktopBridge, isWebUrl, paneCall } from "../../browser/browserPane.ts";
 import { browserLabel } from "../../browser/browserLabel.ts";
 import { simulatorLabel } from "../../devices/simulatorLabel.ts";
+import { isPlanTool } from "../planTool.ts";
 import { folderName } from "../../folder/draftFolder.ts";
 import { DraftLine } from "../composer/DraftLine.tsx";
 import { useStableCallback } from "../../useStableCallback.ts";
@@ -604,6 +605,7 @@ function placeItem(blocks: Block[], item: PresentedItem, folded: ReadonlySet<str
       return;
     }
   }
+  if (item.type === "tool" && (isPlanTool(item.title) || isPlanTool(item.label))) return;
   if (item.type === "thought" || item.type === "tool") {
     pushActivity(blocks, item);
     return;

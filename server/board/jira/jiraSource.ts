@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { fields, maybe } from "../../../bridge/lenient.ts";
 import { BOARD_TEXT_RULE, clip } from "../boardText.ts";
-import { accessRule, apiHome, attachRule, createRule, doneRule, editRule, fileRule, oneLine, reviewRule, shareRule, startRule, ruleText, type BoardTicket } from "../sharedRules.ts";
+import type { BoardSettings } from "../boardSettings.ts";
+import { accessRule, apiHome, attachRule, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startRule, ruleText, type BoardTicket } from "../sharedRules.ts";
 
 export interface JiraBinding {
   provider: "jira";
@@ -40,21 +41,22 @@ function jiraBinding(input: unknown): JiraBinding | null {
   };
 }
 
-function jiraRules(origin: string, binding: JiraBinding, ticket: BoardTicket | null | undefined, tokenFile: string): string {
-  const names = binding.columns.map((title) => oneLine(title)).filter(Boolean);
+function jiraRules(origin: string, binding: JiraBinding, ticket: BoardTicket | null | undefined, tokenFile: string, settings: BoardSettings): string {
+  const moves = movesFor(binding.columns.map((title) => ({ status: title, title })), settings);
   return ruleText([
     `This folder has a Jira board. Move tickets through this app's local board API at ${apiHome(origin)}. It already holds the Jira connection. Do not call Jira directly.`,
     ...accessRule(tokenFile),
     "The columns on this board are its Jira board columns. Read their names through the board API. A ticket id is its Jira key, such as APP-12.",
-    createRule("the first status of the project's workflow"),
+    createRule(moves.create?.title ?? "the first status of the project's workflow"),
     editRule(),
+    commentRule("<key>"),
     'Move a ticket with POST /api/board/move and JSON {"taskId":"<key>","status":"<column>"}. status is a column name. A move follows the Jira workflow, which can refuse it. When it does, tell the user what the API answered and leave the ticket where it is.',
-    ...startRule(names, '"<key>"'),
-    ...reviewRule(names, '"<key>"'),
+    ...startRule(moves.start, '"<key>"'),
+    ...reviewRule(moves.review, '"<key>"'),
     fileRule("<key>", "Show it in the description or a comment with !<file name>!."),
     attachRule(),
     BOARD_TEXT_RULE,
-    doneRule(names, '"<key>"'),
+    doneRule(moves.done, '"<key>"'),
     shareRule(),
   ], ticket);
 }

@@ -31,10 +31,13 @@ import {
   type LinkServices,
   type StoredLink,
 } from "./ticketLinks.ts";
-import { answerCleanup, bindingFor, boundFolder, linksForTask, readTickets, ticketId, unbindProject, writeTickets } from "./tickets.ts";
+import { columnStatus, settingsColor } from "./boardSettings.ts";
+import { readSettings, saveSettings } from "./boardSettingsFile.ts";
+import { answerCleanup, bindingFor, boundFolder, linksForTask, readTickets, ticketId, unbindProject, writeTickets, type ColorOf } from "./tickets.ts";
 import { hiddenInTicket, threadBrief, ticketTitle } from "./boardRules.ts";
 import { stripHiddenDeep } from "./boardText.ts";
-import { providerOf, type BoardProvider } from "./sources.ts";
+import { forgetSavedBoard, readSavedBoard, saveBoard } from "./savedBoards.ts";
+import { providerOf, type BoardBinding, type BoardProvider } from "./sources.ts";
 import type { ChatActivity } from "../chat/workingChat.ts";
 import type { TicketId } from "./ticketId.ts";
 
@@ -121,6 +124,8 @@ export const PageBody = z.object({
   fields: z.record(z.string(), z.string()).optional(),
   done: z.boolean().optional(),
   labels: z.array(BoardItemId).optional(),
+  // A board's settings, which boardSettingsFile.ts checks field by field.
+  settings: z.unknown().optional(),
   // Set by the host from an upload's body. JSON never carries one.
   file: z.instanceof(Blob).optional(),
   // The new session's picks for a thread. provider above is the board's.
@@ -215,6 +220,9 @@ async function routeBoard<Res>(
   if (method === "POST" && pathname === "/api/board/boards") {
     const folder = folderOf(input.cwd, ctx);
     const created = await byProvider[providerOf(input.provider)].bind(folder, input);
+    // The folder's settings and kept columns are the old board's.
+    saveSettings(files.tickets, folder, null);
+    loadedColumns.delete(folder);
     ctx.bindingChanged?.(folder);
     ctx.publish?.();
     ctx.sendJson(res, 201, created);
@@ -224,19 +232,45 @@ async function routeBoard<Res>(
     const folder = canonicalCwd(input.cwd ?? "");
     if (!folder) throw boardError(400, "Choose a folder");
     writeTickets(unbindProject(readTickets(files.tickets), folder), files.tickets);
+    saveSettings(files.tickets, folder, null);
+    loadedColumns.delete(folder);
+    if (files.savedBoards) forgetSavedBoard(files.savedBoards, folder);
     ctx.bindingChanged?.(folder);
     ctx.publish?.();
     ctx.sendJson(res, 200, { ok: true });
     return;
   }
   if (method === "GET" && pathname === "/api/board/board") {
-    const { adapter, board } = boardFor(adapters, folderOf(url.searchParams.get("cwd"), ctx), files, ctx);
-    const loaded = await board.load({
-      search: url.searchParams.get("search") || "",
-      activity: adapter.capabilities.conditionalFetch ? url.searchParams.get("activity") || "" : "",
-    });
-    refreshBoardLinks(links, loaded);
-    ctx.sendJson(res, 200, "tasks" in loaded.view ? { ...loaded.view, capabilities: adapter.capabilities, source: adapter.label } : loaded.view);
+    const { adapter, board, binding } = boardFor(adapters, folderOf(url.searchParams.get("cwd"), ctx), files, ctx);
+    const extras = { capabilities: adapter.capabilities, source: adapter.label };
+    // A local board loads as fast as its saved copy would.
+    const savedBoards = adapter.capabilities.local ? undefined : files.savedBoards;
+    // A saved board carries no activity stamp, so the load after it is a full one.
+    if (url.searchParams.get("saved")) {
+      const saved = savedBoards ? readSavedBoard(savedBoards, board.folder, binding) : null;
+      ctx.sendJson(res, 200, saved ? { ...saved, ...extras, activity: "", settings: readSettings(files.tickets, board.folder) } : {});
+      return;
+    }
+    const search = url.searchParams.get("search") || "";
+    const loaded = await board.load({ search, activity: adapter.capabilities.conditionalFetch ? url.searchParams.get("activity") || "" : "" });
+    const settings = readSettings(files.tickets, board.folder);
+    if (!("tasks" in loaded.view)) {
+      ctx.sendJson(res, 200, { ...loaded.view, settings });
+      return;
+    }
+    if (adapter.capabilities.columnColors) loadedColumns.set(board.folder, loaded.view.columns);
+    refreshBoardLinks(links, loaded, columnColors({ adapter, board }, files));
+    if (savedBoards && !search) saveBoard(savedBoards, board.folder, binding, loaded.view);
+    ctx.sendJson(res, 200, { ...loaded.view, ...extras, settings });
+    return;
+  }
+  if (pathname === "/api/board/settings" && (method === "PUT" || method === "DELETE")) {
+    const { folder } = boardFor(adapters, folderOf(input.cwd, ctx), files, ctx).board;
+    const moves = JSON.stringify(readSettings(files.tickets, folder).moves);
+    const settings = saveSettings(files.tickets, folder, method === "PUT" ? input.settings ?? null : null);
+    // Only the moves reach the agent rules.
+    if (JSON.stringify(settings.moves) !== moves) ctx.bindingChanged?.(folder);
+    ctx.sendJson(res, 200, { settings });
     return;
   }
   if (method === "POST" && pathname === "/api/board/tasks") {
@@ -247,10 +281,12 @@ async function routeBoard<Res>(
       title: input.title,
       description: optionalText(input.description),
     });
-    // A ticket added from a column gets its labels and goes there next. A source that refuses a label or
-    // the move keeps the ticket as far as it got, and the page shows why on its card.
+    // A ticket added from a column gets its labels and goes there next, and one without a column goes where the
+    // board settings send new tickets. A source that refuses a label or the move keeps the ticket as far as it
+    // got, and the page shows why on its card.
     let refused: unknown = null;
-    const wanted = input.status;
+    // null is the column without a status, which the ticket then goes to.
+    const wanted = input.status !== undefined ? input.status : readSettings(files.tickets, board.folder).moves.create?.status;
     const createdId = ticketId(isRecord(task) ? task.id : null);
     const createdStatus = isRecord(task) && isRecord(task.attributes) ? task.attributes.status : undefined;
     for (const labelId of labels) {
@@ -268,7 +304,7 @@ async function routeBoard<Res>(
         refused = boardFailure(error).body.error;
       }
     }
-    const created = { task, ...storeLink(links, folder, input.sessionId ?? "", task), ...(refused ? { refused } : {}) };
+    const created = { task, ...storeLink(links, folder, input.sessionId ?? "", task, columnColors({ adapter, board }, files)), ...(refused ? { refused } : {}) };
     ctx.publish?.();
     ctx.sendJson(res, 201, created);
     return;
@@ -292,7 +328,7 @@ async function routeBoard<Res>(
     const taskId = ticketId(input.taskId);
     if (taskId === null) throw boardError(400, "Choose a ticket");
     const task = await adapterForTicket(adapters, taskId, input.cwd, files, ctx).moveTicket(taskId, input.status, input.cwd, moveExtra(input));
-    rememberTask(links, task);
+    rememberTask(links, task, ticketColors(adapters, taskId, input.cwd, files, ctx));
     ctx.sendJson(res, 200, { task });
     return;
   }
@@ -319,7 +355,7 @@ async function routeBoard<Res>(
     const labelId = labelIdOf(taskLabel[2]);
     if (taskId === null || labelId === null) throw boardError(400, "Choose a ticket");
     const task = await adapterForTicket(adapters, taskId, null, files, ctx).changeLabel(taskId, labelId, method === "PUT");
-    rememberTask(links, task);
+    rememberTask(links, task, ticketColors(adapters, taskId, null, files, ctx));
     ctx.sendJson(res, 200, { task });
     return;
   }
@@ -386,6 +422,12 @@ async function routeBoard<Res>(
     return;
   }
   const comments = /^\/api\/board\/tasks\/([A-Za-z0-9_-]+)\/comments$/.exec(pathname);
+  if (comments && method === "GET") {
+    const taskId = ticketId(comments[1]);
+    if (taskId === null) throw boardError(400, "Choose a ticket");
+    ctx.sendJson(res, 200, { comments: await adapterForTicket(adapters, taskId, null, files, ctx).comments(taskId) });
+    return;
+  }
   if (comments && method === "POST") {
     const taskId = ticketId(comments[1]);
     if (taskId === null) throw boardError(400, "Choose a ticket");
@@ -410,7 +452,7 @@ async function routeBoard<Res>(
     if (taskId === null) throw boardError(400, "Choose a ticket");
     const adapter = adapterForTicket(adapters, taskId, null, files, ctx);
     const task = await adapter.readTicket(taskId);
-    rememberTask(links, task);
+    rememberTask(links, task, ticketColors(adapters, taskId, null, files, ctx));
     const comments = await adapter.comments(taskId);
     ctx.sendJson(res, 200, { task, comments, links: linksForTask(readTickets(files.tickets), taskId) });
     return;
@@ -419,7 +461,7 @@ async function routeBoard<Res>(
     const taskId = ticketId(taskPath[1]);
     if (taskId === null) throw boardError(400, "Choose a ticket");
     const task = await adapterForTicket(adapters, taskId, null, files, ctx).editTicket(taskId, input);
-    rememberTask(links, task);
+    rememberTask(links, task, ticketColors(adapters, taskId, null, files, ctx));
     ctx.sendJson(res, 200, { task });
     return;
   }
@@ -485,9 +527,40 @@ async function routeTaskFile<Res>(req: BoardRequestLike, res: Res, url: URL, inp
   return false;
 }
 
+// The columns of each bound folder whose source keeps its own column colors, from the last full load of its board. A
+// link made or a ticket changed between loads takes its color from here, since the next loads can answer unchanged.
+const loadedColumns = new Map<string, unknown[]>();
+
+// A column's color by the status its tickets carry: the source's own, or else the one the board settings keep.
+// undefined while a source with its own colors has not loaded.
+function columnColors({ adapter, board }: Pick<FolderBoard, "adapter" | "board">, files: BoardFiles): ColorOf | undefined {
+  if (!adapter.capabilities.columnColors) {
+    const settings = readSettings(files.tickets, board.folder);
+    return (status) => settingsColor(settings, columnStatus(status));
+  }
+  const columns = loadedColumns.get(board.folder);
+  return columns && ((status) => {
+    const column = columns.find((item) => isRecord(item) && item.value === status);
+    return isRecord(column) && typeof column.color === "string" ? column.color : undefined;
+  });
+}
+
+// The colors of the board a ticket sits on: the board of the folder named, or else of a chat the ticket is linked to.
+function ticketColors(adapters: BoardAdapter[], taskId: TicketId, cwd: unknown, files: BoardFiles, ctx: BoardRouteServices): ColorOf | undefined {
+  const linked = new Set(linksForTask(readTickets(files.tickets), taskId).map((link) => link.sessionId));
+  const folders = cwd ? [String(cwd)] : [...(ctx.sessions?.() ?? [])].flatMap((session) => (linked.has(session.id) && session.cwd ? [session.cwd] : []));
+  for (const folder of folders) {
+    const found = openBoard(adapters, canonicalCwd(folder), files, ctx);
+    const colors = found?.adapter.claims(taskId) ? columnColors(found, files) : undefined;
+    if (colors) return colors;
+  }
+  return undefined;
+}
+
 interface FolderBoard {
   adapter: BoardAdapter;
   board: BoundBoard;
+  binding: BoardBinding;
 }
 
 // The folder's board, from its binding in tickets.json or its checkout's. null when neither has one.
@@ -498,7 +571,7 @@ function openBoard(adapters: BoardAdapter[], folder: string, files: BoardFiles, 
   if (!binding) return null;
   for (const adapter of adapters) {
     const board = adapter.open(bound, binding);
-    if (board) return { adapter, board };
+    if (board) return { adapter, board, binding };
   }
   return null;
 }
@@ -536,7 +609,7 @@ async function linkExisting(
   if (taskId === null) throw boardError(400, "Choose a ticket");
   const sessionId = sessionForLink(links, body.sessionId, folder);
   if (!adapter.claims(taskId)) throw boardError(404, "That ticket is on another board");
-  return storeLink(links, folder, sessionId, await board.ticketOnBoard(taskId));
+  return storeLink(links, folder, sessionId, await board.ticketOnBoard(taskId), columnColors({ adapter, board }, files));
 }
 
 // The text a thread from this card starts with, cleaned, for the page's draft. Nothing is opened or sent.
@@ -564,7 +637,7 @@ async function openThread(adapters: BoardAdapter[], body: PageBody, files: Board
     picks: { provider: picks.provider ?? "", model: picks.model ?? "", effort: picks.effort ?? "" },
     prompt,
   });
-  const link = linkThread(links, opened.sessionId, task, taskId);
+  const link = linkThread(links, opened.sessionId, task, taskId, columnColors({ adapter, board }, files));
   opened.send();
   ctx.publish?.();
   return { sessionId: opened.sessionId, link };

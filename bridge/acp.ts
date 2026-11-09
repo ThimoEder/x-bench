@@ -35,6 +35,7 @@ import {
   permissionFromRequest,
   type CatalogEntry,
   type ConfigOption,
+  type PlanEntry,
   type Translated,
 } from "./protocol.ts";
 import type { InitializeRequest } from "@agentclientprotocol/sdk";
@@ -773,6 +774,11 @@ export class AcpClient {
     if (!current || !next || sameFolder(current.cwd, next)) return current?.cwd || "";
     this.apply(sessionId, { type: "cwd", cwd: next });
     return this.sessionMap.get(sessionId)?.cwd || next;
+  }
+
+  // A step list the host's update_plan tool keeps, shown like a plan the agent reports itself.
+  setPlan(sessionId: string, entries: PlanEntry[]) {
+    this.apply(sessionId, { type: "plan", entries });
   }
 
   // ---- The connect loop ----

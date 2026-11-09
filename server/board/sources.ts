@@ -1,5 +1,6 @@
 // Every board source by its provider id, with the parts that work without its connection.
 
+import type { BoardSettings } from "./boardSettings.ts";
 import type { BoardTicket } from "./sharedRules.ts";
 import { sakSource, type SakBinding } from "./sak/sakSource.ts";
 import { trelloSource, type TrelloBinding } from "./trello/trelloSource.ts";
@@ -12,7 +13,7 @@ export type BoardProvider = BoardBinding["provider"];
 export interface BoardSource<B extends BoardBinding> {
   // A binding from tickets.json or a new bind, checked and clipped. null when it is malformed.
   binding(input: unknown): B | null;
-  rules(origin: string, binding: B, ticket: BoardTicket | null | undefined, tokenFile: string): string;
+  rules(origin: string, binding: B, ticket: BoardTicket | null | undefined, tokenFile: string, settings: BoardSettings): string;
 }
 
 const sources: { [P in BoardProvider]: BoardSource<Extract<BoardBinding, { provider: P }>> } = {

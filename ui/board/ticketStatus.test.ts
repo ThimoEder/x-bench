@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TICKET_STATUS, statusTone, threadCount, ticketStatus } from "./ticketStatus.ts";
+import { TICKET_STATUS, statusTone, threadCount, ticketTone } from "./ticketStatus.ts";
 
 test("a ticket counts one thread per connected chat", () => {
   const tickets = {
@@ -20,11 +20,19 @@ test("a ticket counts one thread per connected chat", () => {
 });
 
 test("a linked chat takes the strongest ticket status", () => {
-  assert.equal(ticketStatus([{ status: "done" }, { status: "active" }]), "active");
-  assert.equal(ticketStatus([{ status: "done" }, { status: "review" }]), "review");
-  assert.equal(ticketStatus([{ status: "open" }]), "open");
-  assert.equal(ticketStatus([{ status: null }]), "");
-  assert.equal(ticketStatus([{ status: "Done" }, { status: "In Progress" }]), "active");
+  assert.equal(ticketTone([{ status: "done" }, { status: "active" }]), TICKET_STATUS.active);
+  assert.equal(ticketTone([{ status: "done" }, { status: "review" }]), TICKET_STATUS.review);
+  assert.equal(ticketTone([{ status: "open" }]), TICKET_STATUS.open);
+  assert.equal(ticketTone([{ status: null }]), undefined);
+  assert.equal(ticketTone([{ status: "Done" }, { status: "In Progress" }]), TICKET_STATUS.active);
+});
+
+test("a chat's bar takes its foremost ticket's column color, or the color of the status name", () => {
+  assert.equal(ticketTone([{ status: "done", color: "#61bd4f" }, { status: "active", color: "#c377e0" }]), "#c377e0");
+  assert.equal(ticketTone([{ status: "review" }]), TICKET_STATUS.review);
+  assert.equal(ticketTone([{ status: "2. Doing", color: "#0079bf" }]), "#0079bf");
+  assert.equal(ticketTone([{ status: "2. Doing" }]), undefined);
+  assert.equal(ticketTone([]), undefined);
 });
 
 test("another board's column names take the four status colors", () => {

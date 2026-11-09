@@ -4,7 +4,7 @@ import { app, ipcMain, autoUpdater as squirrel } from "electron";
 import electronUpdater from "electron-updater";
 import fs from "node:fs";
 import { sameHostOrigin } from "../browser/browserRules.js";
-import { UpdateError, appBundle, copyName } from "./updateRules.js";
+import { UpdateError, appBundle, copyName, noteSections } from "./updateRules.js";
 
 const { autoUpdater } = electronUpdater;
 const OFFLINE = "Couldn't check for updates. Check your connection and try again.";
@@ -51,8 +51,8 @@ export function createUpdater({ origin }) {
         publish({ phase: "current" });
         return;
       }
-      const { version, files, releaseNotes } = result.updateInfo;
-      const notes = typeof releaseNotes === "string" ? releaseNotes.split("\n").filter(Boolean) : [];
+      const { version, files, releaseNotes, releaseNotesGrouped } = result.updateInfo;
+      const notes = noteSections(typeof releaseNotesGrouped === "string" ? releaseNotesGrouped : typeof releaseNotes === "string" ? releaseNotes : "");
       release = { version, size: files.find((file) => file.url.endsWith(".zip"))?.size ?? 0, notes };
       publish({ phase: "available", release });
     } catch {

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 export interface UpdateRelease {
   version: string;
   size: number;
-  notes: string[];
+  notes: { heading: string; notes: string[] }[];
 }
 
 // What desktop/updater/updater.js reports. version is the running app's.
@@ -110,7 +110,16 @@ export function UpdateCard({ bridge, running, onClose }: UpdateCardProps) {
       <>
         <strong><span className="update-dot" aria-hidden="true" />X Bench {release.version} is available</strong>
         <p>{Math.max(1, Math.round(release.size / 1e6))} MB. You have {state.version}.</p>
-        {release.notes.length ? <ul>{release.notes.map((note) => <li key={note}>{note}</li>)}</ul> : null}
+        {release.notes.length ? (
+          <div className="update-notes">
+            {release.notes.map((section) => (
+              <section key={section.heading}>
+                {section.heading ? <h4>{section.heading}</h4> : null}
+                <ul>{section.notes.map((note) => <li key={note}>{note}</li>)}</ul>
+              </section>
+            ))}
+          </div>
+        ) : null}
         <div className="update-actions">
           <button type="button" className="primary" data-testid="update-install" onClick={() => (running ? setConfirming(true) : update("idle"))}>
             Update and restart

@@ -179,11 +179,14 @@ function jiraBoard(services: BoardServices, folder: string, binding: JiraBinding
   return {
     folder,
     async load({ search, activity }) {
-      const loaded = await loadJiraBoard(connection(), binding.boardId, { ...(fetchOptions || {}), search, activity });
+      const [loaded, me] = await Promise.all([
+        loadJiraBoard(connection(), binding.boardId, { ...(fetchOptions || {}), search, activity }),
+        jiraAccountId(connection(), fetchOptions),
+      ]);
       if (!loaded.info) return { view: loaded.payload, rebind: null };
       const info = loaded.info;
       return {
-        view: { ...loaded.payload, me: (await jiraAccountId(connection(), fetchOptions)) || null },
+        view: { ...loaded.payload, me: me || null },
         rebind: (state) => bindBoard(state, folder, bindingInput(info)),
       };
     },

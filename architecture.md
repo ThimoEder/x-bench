@@ -71,7 +71,7 @@ flowchart TB
   Desktop["desktop/"] -->|"forks"| Server
 ```
 
-The page imports host types with `import type`, plus a few pure helpers such as `server/board/boardLink.ts` and `server/devices/deviceMath.ts`. No Node code and no Zod reach the page bundle.
+The page imports host types with `import type`, plus a few pure helpers such as `server/board/boardLink.ts`, `server/board/boardSettings.ts` and `server/devices/deviceMath.ts`. No Node code and no Zod reach the page bundle.
 
 ## A chat, end to end
 
@@ -292,7 +292,7 @@ A route that acts on a session goes through `server/routeGuard.ts`: the session 
 | `browser`, `deviceFocus` | The browser pane's tabs, and the device a launched app brought up. |
 | `remote` | Each remote tunnel's switch, state and address. |
 | `routines` | Every routine with its next run and newest runs, and which host runs the schedule. |
-| `app` | Whether to keep the Mac awake, and whether this host runs in the app. |
+| `app` | Whether to keep the Mac awake, whether the experimental plan tool is on, and whether this host runs in the app. |
 | `reveal` | A session every page should open, from a click on a routine's notification. |
 
 ### Desk and surfaces
@@ -370,6 +370,7 @@ flowchart TB
     Term["Terminal"]
   end
   subgraph tools [MCP server x_bench]
+    Plan["update_plan"]
     Suggest["suggest_task"]
     ChatId["chat_id"]
     Browser["browser_*"]
@@ -438,14 +439,18 @@ flowchart LR
 
 A folder route uses the folder's binding. A task route picks the adapter by the id's shape (`board/ticketId.ts`): a number is SAK's, 24 hex characters are Trello's, a key like `APP-12` is Jira's. The host starts `sak serve` itself when SAK is enabled and nothing answers (`board/sak/sakServe.ts`), with the website named in `sak.json`, or else a checkout's. A SAK without its website answers its pages with a 404, and the board then leaves out the links to them. Turning SAK on with no token first mints one into `~/.x-bench/sak.db`.
 
+The board page draws a folder's board at once and loads it again behind it (`ui/board/useBoardLoad.ts`). It starts from the board `ui/board/boardCache.ts` kept from the last load and sends that board's activity stamp, so a source with `conditionalFetch` answers `unchanged` when nothing changed. With nothing kept since launch, it draws the host's saved copy (`/api/board/board?saved=1`), which carries no stamp, so the load after it is a full one. The host writes that copy for a board that is not local at each full load without a search, to `~/.x-bench/board-cache/` (`board/savedBoards.ts`), one file per bound folder, and removes it when the folder loses its board. A load that fails with a board on screen keeps the board, and the banner says why. The reload button in the board's bar loads the whole board without the stamp, and its tooltip tells when a load last answered. A Jira load reads the board, its configuration and its newest change in parallel, then the issue pages after the first in parallel.
+
 Capabilities cover notes, labels, label colors, label deletes, labels without a ticket, ticket deletes, column colors, types, assignees, due dates, priority, sub-tasks, checklists, relations, comments and file embeds by name. SAK tickets relate as parent, blocks, follows, relates or duplicates; Trello and Jira refuse relations. A ticket picks its labels from the board's (`ui/board/LabelPicker.tsx`), also while it is added, and the Labels sheet (`ui/board/LabelSheet.tsx`) adds a label, onto the open ticket when it was opened from one, and deletes one. SAK sets a label's color only when it creates the label. Jira keeps a label only on its issues, so its sheet adds one only from a ticket.
 
-Every source keeps files on a ticket at `/api/board/tasks/<id>/files`, with Trello's and Jira's attachments mapped onto SAK's file shape. An upload is the file's bytes as `application/octet-stream` with `?name=`, up to 100 MiB, held in memory on its way to the source. A read passes its `Range` on, and the host serves the bytes from its own origin with `nosniff` and `Content-Security-Policy: sandbox`, so a file opened there runs no script. The ticket detail draws its description, note and comments as Markdown. An embed of a file's own url, and on a board with `embedsByName` an embed by the file's name (`!shot.png!`), loads from that route (`ui/board/ticketEmbeds.ts`). The ticket's file list tells a clip from a picture, and a clip's route ends in a video extension the route ignores, so it plays in the video player.
+Board settings sit on top of what a source sends, per bound folder, in `~/.x-bench/board-settings.json` (`board/boardSettings.ts`, kept by `board/boardSettingsFile.ts`): each column's order, hidden, collapsed and color, and the column each automatic move goes to (new ticket, work starts, pull request, merge). A move without a picked column goes to the first column with one of the names it looks for, such as In Progress or Done. The board load answers them as `settings`, `PUT` and `DELETE /api/board/settings` change them, and a change updates the rules of the folder's open chats. The page applies them in `arrangedBoard` (`ui/board/boardData.ts`) and edits them in a pane that takes the open ticket's dock (`ui/board/BoardSettings.tsx`) and from a column's header, which collapses the column into a strip. A source with `columnColors` paints its own lists, and on the others the color stays in the settings. The rules name a column only when the person picked it in the settings or its name is one a move looks for, and a ticket created without a column goes to the one picked for new tickets.
+
+Every source reads and adds comments at `/api/board/tasks/<id>/comments`, straight from the board with nothing cached, and a ticket read carries them too. The agent rules name both routes. Every source keeps files on a ticket at `/api/board/tasks/<id>/files`, with Trello's and Jira's attachments mapped onto SAK's file shape. An upload is the file's bytes as `application/octet-stream` with `?name=`, up to 100 MiB, held in memory on its way to the source. A read passes its `Range` on, and the host serves the bytes from its own origin with `nosniff` and `Content-Security-Policy: sandbox`, so a file opened there runs no script. The ticket detail draws its description, note and comments as Markdown. An embed of a file's own url, and on a board with `embedsByName` an embed by the file's name (`!shot.png!`), loads from that route (`ui/board/ticketEmbeds.ts`). The ticket's file list tells a clip from a picture, and a clip's route ends in a video extension the route ignores, so it plays in the video player.
 
 Boards and chats meet in five places:
 
 - **Board rules** (`board/boardRules.ts`, each source's own in its `*Source.ts`) go into every new builder session in a bound folder and tell the agent to move tickets through this host's `/api/board/*`. When a folder gets a board, its open chats get the rules through `updateRules` in `bridge/acp.ts`: every harness keeps a session's system prompt from its start, so the rules go with the chat's next plain prompt that starts a turn (a slash command goes unchanged), inside `<x-bench-board-rules>`, which the transcript, the queue and the title leave out. They wait through closing the chat, come back when a prompt fails, and go when the folder loses its board before they are sent.
-- **Links**: an agent reads its own id from the `chat_id` tool and posts `/api/board/links`. Links live in `~/.x-bench/tickets.json` and show as ticket chips in the chat and chats on the ticket.
+- **Links**: an agent reads its own id from the `chat_id` tool and posts `/api/board/links`. Links live in `~/.x-bench/tickets.json` and show as ticket chips in the chat and chats on the ticket. A board load also keeps each linked ticket's column color with its link, the source's own or else the one the board settings keep, so the sidebar colors a chat's bar without loading a board. A link made or a ticket changed between loads takes its color at once: from the board settings, or for a source with its own colors from the columns of the folder's last full load, which the host keeps in memory. Chips and ticket links in a chat read the colors from the board `ui/board/boardCache.ts` keeps.
 - **Done tickets**: a link whose ticket moves from Review to Done gets `cleanup` in `tickets.json`. Once every ticket of the chat is done and its turn has ended, `ui/board/TicketDone.tsx` offers in the composer shelf, below the pull request row, to archive the chat with the worktree it has to itself. Archiving the chat clears `cleanup` in `/api/archive`, and the × clears it through `DELETE /api/board/links/cleanup`.
 - **Board offer**: once the first turn in the first chat of a project without a board has ended, `ui/board/BoardOffer.tsx` shows a card at the end of the chat that opens Create board. Either answer hides it for that project in `localStorage`.
 - **Threads**: `/api/board/threads` starts a chat for a card in the background, optionally in a worktree named after the ticket, and links it.
@@ -455,7 +460,7 @@ Every string in a board API reply, and the board text in the board rules and a t
 
 ### Agent tools (MCP)
 
-The host serves one MCP server, `x_bench`, over Streamable HTTP at `/api/mcp/<key>` (`server/mcp/mcp.ts`). Each `session/new` and `session/load` gets a fresh key that names its session, so every tool call knows its chat. Tool groups plug in their tools and a line for the system prompt: task suggestions, `chat_id`, the browser, the simulators, `pr_status`, chat folders (`server/sidebar/folderTools.ts`) and routines (`server/routines/routineTools.ts`). Chats on the chat surface show no review dock, so their keys offer neither the browser nor the simulator tools, and their prompt leaves out those lines.
+The host serves one MCP server, `x_bench`, over Streamable HTTP at `/api/mcp/<key>` (`server/mcp/mcp.ts`). Each `session/new` and `session/load` gets a fresh key that names its session, so every tool call knows its chat. Tool groups plug in their tools and a line for the system prompt: `update_plan` (`server/chat/planTool.ts`), task suggestions, `chat_id`, the browser, the simulators, `pr_status`, chat folders (`server/sidebar/folderTools.ts`) and routines (`server/routines/routineTools.ts`). Chats on the chat surface show no review dock, so their keys offer neither the browser nor the simulator tools, and their prompt leaves out those lines. `update_plan` is experimental: a chat gets it when `planTool` in `~/.x-bench/settings.json` is on as the chat opens (Settings › General › Experimental). It keeps the session's step list in the host (`setPlan` on the ACP client), the same state an ACP `plan` update fills, so the composer shelf and the Plan tab show it and the transcript leaves out its rows. A subagent's call changes nothing, since the plan belongs to the main agent; its tool carries `_meta["anthropic/alwaysLoad"]` so Claude Code lists it upfront instead of behind tool search. While the setting is off, Claude Code starts with its own task tools turned on.
 
 ```mermaid
 sequenceDiagram
@@ -616,8 +621,10 @@ The harnesses own the agents and their transcripts. X Bench owns the window, the
 | A switched chat's earlier stretches and pending handoff | `~/.x-bench/chats/<id>.json` | This host |
 | Sidebar order, pins, folders, archive, names | `~/.x-bench/sidebar.json` | Every host on the same home |
 | Board connections, bindings, ticket links | `~/.x-bench/{sak,trello,jira,tickets}.json` | Every host on the same home |
+| Board settings: columns, automatic moves | `~/.x-bench/board-settings.json` | Every host on the same home |
+| Each bound folder's Trello or Jira board as last loaded | `~/.x-bench/board-cache/` | Every host on the same home |
 | Suggested tasks | `~/.x-bench/suggestions.json` | Every host on the same home |
-| Routines, and keeping the Mac awake | `~/.x-bench/routines.json`, `settings.json` | Every host on the same home |
+| Routines, keeping the Mac awake and experimental features | `~/.x-bench/routines.json`, `settings.json` | Every host on the same home |
 | Routine runs, and which host runs the schedule | `~/.x-bench/routine-runs.json`, `routines.lock` | The host that runs the schedule or starts a run |
 | Providers on, defaults; Claude's folder and binary | `~/.x-bench/providers.json`, `claude.json` | The settings page; providers.json also the first-launch onboarding |
 | Model lists, last usage meters, slash commands | `~/.x-bench/{claude,chatgpt}-models.json`, `usage.json`, `harness-commands.json` | This host |

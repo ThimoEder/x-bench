@@ -128,7 +128,7 @@ export function createFakeAgent(dialect: FakeDialect, store: FakeStore, { send, 
   }
 
   // Claude Code's command_lifecycle frame, as the adapter forwards it raw.
-  function commandFrame(sessionId: string, uuid: string, state: "started" | "cancelled") {
+  function commandFrame(sessionId: string, uuid: string, state: "started" | "completed" | "cancelled") {
     send({ jsonrpc: "2.0", method: "_claude/sdkMessage", params: { sessionId, message: { type: "command_lifecycle", state, command_uuid: uuid } } });
   }
 
@@ -519,6 +519,18 @@ export function createFakeAgent(dialect: FakeDialect, store: FakeStore, { send, 
             update(sessionId, { sessionUpdate: "async_task_state_update", asyncTaskId: "task-1", state: "completed" }, false);
             update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "is done." } }, false);
             update(sessionId, { sessionUpdate: "usage_update", used: 1300, size: 200000, cost: { amount: 0.01, currency: "USD" }, _meta: { "_claude/origin": { kind: "task-notification" } } }, false);
+          }, 50);
+          return;
+        }
+        if (text.includes("IDLECOMPACT")) {
+          reply(message.id, { stopReason: "end_turn" });
+          setTimeout(() => {
+            // Like the adapter's idle compaction: a /compact of its own whose turn ends without a cost.
+            commandFrame(sessionId, "compact-1", "started");
+            update(sessionId, { sessionUpdate: "tool_call", toolCallId: "compact-tool", kind: "think", title: "Compact conversation", status: "in_progress" }, false);
+            update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: "compact-tool", status: "completed" }, false);
+            update(sessionId, { sessionUpdate: "usage_update", used: 900, size: 200000 }, false);
+            commandFrame(sessionId, "compact-1", "completed");
           }, 50);
           return;
         }

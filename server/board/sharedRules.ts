@@ -1,4 +1,5 @@
 import { MCP_SERVER } from "../mcp/mcp.ts";
+import { resolveMoves, type BoardSettings, type MoveColumn, type MoveKey } from "./boardSettings.ts";
 import { stripHidden } from "./boardText.ts";
 import { ticketId } from "./ticketId.ts";
 
@@ -14,31 +15,31 @@ export interface BoardTicket {
   note?: unknown;
 }
 
-// Names a column only when it is literally called one of these, like the Done rule.
-const START_COLUMNS = ["in progress", "doing", "active"];
+// Column names come from whoever edits the board, so a rule names a column only when the user picked it in the
+// board settings, or its name is one a move looks for.
+export function movesFor(columns: readonly MoveColumn[], settings: BoardSettings): Record<MoveKey, MoveColumn | null> {
+  const clean = (column: MoveColumn | null) => (column && { status: column.status, title: oneLine(column.title) || column.status });
+  const moves = resolveMoves(columns.map((column) => ({ status: column.status, title: oneLine(column.title) })).filter((column) => column.title), settings);
+  return { create: clean(moves.create), start: clean(moves.start), review: clean(moves.review), done: clean(moves.done) };
+}
 
-export function startRule(names: string[], id: string): string[] {
-  const column = names.find((name) => START_COLUMNS.includes(name.toLowerCase()));
+function moveJson(id: string, column: MoveColumn): string {
+  return `{"taskId":${id},"status":${JSON.stringify(column.status)}}`;
+}
+
+export function startRule(column: MoveColumn | null, id: string): string[] {
   if (!column) return [];
-  return [`Starting work on a ticket moves it to ${column}. Move it with POST /api/board/move and JSON {"taskId":${id},"status":"${column}"}.`];
+  return [`Starting work on a ticket moves it to ${column.title}. Move it with POST /api/board/move and JSON ${moveJson(id, column)}.`];
 }
 
-const REVIEW_COLUMNS = ["review", "in review", "code review"];
-
-export function reviewRule(names: string[], id: string): string[] {
-  const column = names.find((name) => REVIEW_COLUMNS.includes(name.toLowerCase()));
-  return column ? [reviewLine(column, id, column)] : [];
+export function reviewRule(column: MoveColumn | null, id: string): string[] {
+  if (!column) return [];
+  return [`Opening a pull request that is not a draft, or marking a draft pull request ready for review, moves the ticket to ${column.title}. Move it with POST /api/board/move and JSON ${moveJson(id, column)}. A draft pull request leaves the ticket where it is.`];
 }
 
-export function reviewLine(column: string, id: string, status: string): string {
-  return `Opening a pull request that is not a draft, or marking a draft pull request ready for review, moves the ticket to ${column}. Move it with POST /api/board/move and JSON {"taskId":${id},"status":"${status}"}. A draft pull request leaves the ticket where it is.`;
-}
-
-// Column names come from whoever edits the board, so only a column literally called Done is named.
-export function doneRule(names: string[], id: string): string {
-  const done = names.find((name) => name.toLowerCase() === "done");
-  if (!done) return "A merge, or a commit on main, asks which column the ticket should move to when the work is clearly finished, and waits for the answer.";
-  return `A merge, or a commit on main, moves the ticket to ${done} when the work is clearly finished. Move it with POST /api/board/move and JSON {"taskId":${id},"status":"${done}"}. If it is not clear that everything is finished, ask which column it should move to, and wait for the answer.`;
+export function doneRule(column: MoveColumn | null, id: string): string {
+  if (!column) return "A merge, or a commit on main, asks which column the ticket should move to when the work is clearly finished, and waits for the answer.";
+  return `A merge, or a commit on main, moves the ticket to ${column.title} when the work is clearly finished. Move it with POST /api/board/move and JSON ${moveJson(id, column)}. If it is not clear that everything is finished, ask which column it should move to, and wait for the answer.`;
 }
 
 export function accessRule(tokenFile: string): string[] {
@@ -56,6 +57,10 @@ export function createRule(column: string): string {
 
 export function editRule(): string {
   return `Change a ticket's title or description with PATCH /api/board/tasks/<id> and JSON {"revision":<current revision>,"description":"..."}, adding "title" to rename it. Read the current revision from task.revision in GET /api/board/tasks/<id> right before the edit, and send it back exactly as it reads. When the API refuses the edit with 409, read the ticket again and redo the edit on its new text.`;
+}
+
+export function commentRule(id: string): string {
+  return `Read a ticket's comments with GET /api/board/tasks/${id}/comments. GET /api/board/tasks/${id} also answers them in its comments field. Add a comment with POST /api/board/tasks/${id}/comments and JSON {"body":"..."}.`;
 }
 
 export function fileRule(id: string, shown: string): string {

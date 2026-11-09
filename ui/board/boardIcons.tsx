@@ -221,3 +221,39 @@ export function LinkIcon() {
     </Glyph>
   );
 }
+
+export function SlidersIcon() {
+  return (
+    <Glyph size={15}>
+      <path d="M4 7h9M19 7h1M4 17h1M11 17h9" />
+      <circle cx="16" cy="7" r="2.5" />
+      <circle cx="8" cy="17" r="2.5" />
+    </Glyph>
+  );
+}
+
+export function EyeIcon({ off = false }: { off?: boolean }) {
+  return (
+    <Glyph size={15}>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+      {off ? <path d="M4 4l16 16" /> : null}
+    </Glyph>
+  );
+}
+
+export function CollapseIcon() {
+  return (
+    <Glyph size={14}>
+      <path d="M5 6l6 6-6 6M19 6l-6 6 6 6" />
+    </Glyph>
+  );
+}
+
+export function GripIcon() {
+  return (
+    <Glyph size={14} width={3}>
+      <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />
+    </Glyph>
+  );
+}

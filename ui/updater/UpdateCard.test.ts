@@ -23,7 +23,7 @@ after(async () => {
   dom.close();
 });
 
-const RELEASE = { version: "0.0.2", size: 182_000_000, notes: ["The review panel remembers its width for each chat."] };
+const RELEASE = { version: "0.0.2", size: 182_000_000, notes: [{ heading: "Fixed", notes: ["The review panel remembers its width for each chat."] }] };
 
 // A stand-in for the desktop app's updater: it records the page's calls, and send() plays its state changes.
 function fakeBridge() {
@@ -67,6 +67,7 @@ test("opening the card checks, and with no chat running Update and restart insta
   assert.match(card()?.textContent ?? "", /X Bench 0\.0\.2 is available/);
   assert.match(card()?.textContent ?? "", /182 MB/);
   assert.match(card()?.textContent ?? "", /remembers its width/);
+  assert.equal(card()?.querySelector("h4")?.textContent, "Fixed");
   await press("update-install");
   assert.deepEqual(calls, ["check", "install"]);
 

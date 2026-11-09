@@ -22,6 +22,7 @@ export function xBenchPaths(home = os.homedir(), env: NodeJS.ProcessEnv = proces
     harnessCommands: file("harness-commands.json"),
     suggestions: env.X_BENCH_SUGGESTIONS || file("suggestions.json"),
     tickets: env.X_BENCH_TICKETS || file("tickets.json"),
+    savedBoards: file("board-cache"),
     sak: env.X_BENCH_SAK || secret("sak.json"),
     jira: env.X_BENCH_JIRA || secret("jira.json"),
     trello: env.X_BENCH_TRELLO || secret("trello.json"),

@@ -71,6 +71,18 @@ test("a chat in a folder without the review dock gets no builder-only tools or t
   assert.deepEqual(host.toolsFor("other"), []);
 });
 
+test("a group behind a setting reaches the chats that open while the setting is on", () => {
+  let on = false;
+  const host = createHostTools([{ instructions: "Use echo.", tools: [echo] }, { instructions: "Use asking.", tools: [asking], enabled: () => on }]);
+  const tools = host.sessionTools({ port: 4321, token: "secret" });
+  const namesOf = (grant: { servers: { url: string }[] }) => host.toolsFor(grant.servers[0]?.url.split("/").at(-1) ?? "").map((tool) => tool.spec.name);
+  const before = tools.grant("s1", "/work");
+  assert.equal(before.instructions, "Use echo.");
+  on = true;
+  assert.deepEqual(namesOf(tools.grant("s2", "/work")), ["echo", "asking"]);
+  assert.deepEqual(namesOf(before), ["echo"], "an open chat keeps the tools it got");
+});
+
 test("the MCP server answers initialize, ping and tools/list, and nothing for notifications", async () => {
   const tools = [echo, asking];
   const init = await answerMcp({ jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-03-26" } }, tools, context);

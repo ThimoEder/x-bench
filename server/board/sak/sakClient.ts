@@ -162,9 +162,10 @@ export async function sakCall<T>(
     }
     return await read(response);
   } catch (error) {
-    if (isRecord(error) && error.name === "AbortError") throw sakError(504, "The local board did not answer");
     if (isRecord(error) && error.status) throw error;
-    throw sakError(502, "The local board is not reachable");
+    const unanswered = isRecord(error) && error.name === "AbortError" ? sakError(504, "The local board did not answer") : sakError(502, "The local board is not reachable");
+    // The page shows where the board was expected.
+    throw Object.assign(unanswered, { address: base });
   } finally {
     clearTimeout(timer);
   }

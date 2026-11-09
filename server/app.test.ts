@@ -2927,6 +2927,10 @@ test("routines are created, changed, run and deleted over the API", async () => 
     assert.equal((await call(host.app, "POST", "/api/settings", { keepAwake: true })).status, 200);
     assert.equal(host.app.store.snapshot.app.keepAwake, true);
     assert.equal((await call(host.app, "POST", "/api/settings", { keepAwake: false })).status, 200);
+    assert.equal(host.app.store.snapshot.app.planTool, false);
+    assert.equal((await call(host.app, "POST", "/api/settings", { planTool: true })).status, 200);
+    assert.deepEqual(host.app.store.snapshot.app, { desktop: false, keepAwake: false, planTool: true }, "one setting leaves the other alone");
+    assert.equal((await call(host.app, "POST", "/api/settings", { planTool: false })).status, 200);
 
     assert.equal((await call(host.app, "POST", "/api/load", { sessionId: RUN, cwd: repo })).status, 200);
     const opened: Snapshot["open"] = host.app.store.snapshot.open;

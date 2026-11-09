@@ -759,6 +759,19 @@ test("claude: a background task shows while it runs and ends when Claude says so
   }
 });
 
+test("claude: a compaction the adapter starts by itself ends its turn", async () => {
+  const { provider, cleanup } = claudeHarness();
+  try {
+    await provider.start();
+    const session = await provider.createSession({ cwd: os.tmpdir() });
+    await provider.prompt(session.id, "IDLECOMPACT");
+    await waitFor(() => provider.getSession(session.id)?.transcript.some((item) => item.type === "tool" && item.status === "completed"), "the compaction");
+    await waitFor(() => provider.getSession(session.id)?.status === "idle", "the compaction's turn to end");
+  } finally {
+    await cleanup();
+  }
+});
+
 test("claude: send now stops the turn and sends the chosen queued message next", async () => {
   const { provider, cleanup } = claudeHarness();
   try {

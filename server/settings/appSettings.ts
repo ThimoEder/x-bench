@@ -1,4 +1,4 @@
-// settings.json: { "keepAwake": false }. Settings of the app itself that the host acts on, shared by every host on
+// settings.json: { "keepAwake": false, "planTool": false }. Settings of the app itself that the host acts on, shared by every host on
 // the same home. The page's own preferences stay in its localStorage.
 
 import path from "node:path";
@@ -7,11 +7,16 @@ import { fileStamp, loadDurable, saveDurable } from "../jsonFile.ts";
 
 export interface AppSettings {
   keepAwake: boolean;
+  // Experimental: agents keep a step list with the host's update_plan tool.
+  planTool: boolean;
 }
 
-const DEFAULTS: AppSettings = { keepAwake: false };
+const DEFAULTS: AppSettings = { keepAwake: false, planTool: false };
 
-const SettingsFile = z.object({ keepAwake: z.boolean().catch(DEFAULTS.keepAwake).default(DEFAULTS.keepAwake) });
+const SettingsFile = z.object({
+  keepAwake: z.boolean().catch(DEFAULTS.keepAwake).default(DEFAULTS.keepAwake),
+  planTool: z.boolean().catch(DEFAULTS.planTool).default(DEFAULTS.planTool),
+});
 
 function parse(value: unknown): AppSettings | null {
   const parsed = SettingsFile.safeParse(value);

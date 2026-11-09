@@ -5,7 +5,7 @@
 // ACP, _x.ai or any other protocol. The harness keeps its login, tools, permissions,
 // session storage and skills.
 
-import type { CatalogEntry } from "./protocol.ts";
+import type { CatalogEntry, PlanEntry } from "./protocol.ts";
 import type { SessionState } from "./reducer.ts";
 
 export type ProviderStatus = "idle" | "connecting" | "reconnecting" | "ready" | "failed" | "stopped";
@@ -188,6 +188,8 @@ export interface Provider {
 
   // The host moved the session's folder.
   setSessionCwd(sessionId: string, cwd: unknown): string;
+  // The step list the host's update_plan tool keeps.
+  setPlan(sessionId: string, entries: PlanEntry[]): void;
 
   // The follow-ups waiting behind the running turn.
   editQueued(sessionId: string, id: string, text: string, version: number): void;

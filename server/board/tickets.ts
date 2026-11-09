@@ -18,6 +18,8 @@ export interface SessionTicketLink {
   title: string;
   reference: number | null;
   status: string | null;
+  // The color of the ticket's column on its board, when the host knows one.
+  color?: string;
   // The ticket moved from Review to Done, and the chat has not answered the offer to archive it yet.
   cleanup?: true;
 }
@@ -43,6 +45,7 @@ const StoredLink = fields({
   title: z.unknown().optional(),
   reference: z.unknown().optional(),
   status: z.unknown().optional(),
+  color: z.unknown().optional(),
   cleanup: z.unknown().optional(),
 });
 
@@ -120,7 +123,10 @@ export function unbindProject(state: unknown, cwd: unknown): TicketsState {
   return { bindings, links: current.links };
 }
 
-export function linkTicket(state: unknown, { sessionId, task: input }: { sessionId: unknown; task: unknown }): TicketsState {
+// A column's color by the status its tickets carry.
+export type ColorOf = (status: unknown) => string | undefined;
+
+export function linkTicket(state: unknown, { sessionId, task: input }: { sessionId: unknown; task: unknown }, colorOf?: ColorOf): TicketsState {
   const task = TaskInput.parse(input);
   const id = String(sessionId || "");
   const taskId = ticketId(task.id ?? task.taskId);
@@ -134,6 +140,8 @@ export function linkTicket(state: unknown, { sessionId, task: input }: { session
     reference: referenceOf(task.reference),
     status: taskStatus(task),
   };
+  const color = hexColor(colorOf?.(task.attributes.status));
+  if (color) next.color = color;
   const index = current.links.findIndex((link) => link.sessionId === id && link.taskId === taskId);
   const links = [...current.links];
   if (index >= 0) links[index] = next;
@@ -181,7 +189,8 @@ export function dropSessionLinks(state: unknown, sessionId: unknown): TicketsSta
   return { bindings: current.bindings, links: current.links.filter((link) => link.sessionId !== id) };
 }
 
-export function refreshLinkText(state: unknown, tasks: Iterable<unknown> | null | undefined): TicketsState {
+// Without colorOf, a ticket that changed its status loses its color until its board loads.
+export function refreshLinkText(state: unknown, tasks: Iterable<unknown> | null | undefined, colorOf?: ColorOf): TicketsState {
   const current = normalizeTickets(state);
   const byId = new Map<string, TaskInput>();
   for (const item of tasks || []) {
@@ -196,11 +205,12 @@ export function refreshLinkText(state: unknown, tasks: Iterable<unknown> | null 
     const title = clip(task.title, 200);
     const reference = referenceOf(task.reference);
     const status = taskStatus(task);
-    if (title === link.title && reference === link.reference && status === link.status) return link;
+    const color = colorOf ? hexColor(colorOf(task.attributes.status)) : status === link.status ? link.color : undefined;
+    if (title === link.title && reference === link.reference && status === link.status && color === link.color) return link;
     changed = true;
-    const { cleanup, ...rest } = link;
+    const { cleanup, color: _before, ...rest } = link;
     const done = statusKey(status) === "done" && (cleanup || statusKey(link.status) === "review");
-    return { ...rest, title, reference, status, ...(done ? { cleanup: true as const } : {}) };
+    return { ...rest, title, reference, status, ...(color ? { color } : {}), ...(done ? { cleanup: true as const } : {}) };
   });
   return changed ? { bindings: current.bindings, links } : current;
 }
@@ -216,6 +226,7 @@ export function presentTickets(state: unknown): TicketLinks {
       title: link.title,
       reference: link.reference,
       status: link.status,
+      ...(link.color ? { color: link.color } : {}),
       ...(link.cleanup ? { cleanup: true as const } : {}),
     });
     bySession[link.sessionId] = row;
@@ -227,6 +238,11 @@ function taskStatus(task: TaskInput): string | null {
   const value = task.linkStatus ?? task.attributes.status ?? task.status;
   if (value === null || value === undefined || value === "") return null;
   return clip(value, 40);
+}
+
+// The page puts the color into a style, so anything but a hex color is dropped.
+function hexColor(value: unknown): string | undefined {
+  return typeof value === "string" && /^#[0-9a-f]{3,8}$/i.test(value) ? value : undefined;
 }
 
 function referenceOf(value: unknown): number | null {
@@ -275,6 +291,7 @@ function normalizeTickets(raw: unknown): TicketsState {
       title: clip(link.title, 200),
       reference: referenceOf(link.reference),
       status: taskStatus(TaskInput.parse({ attributes: { status: link.status } })),
+      ...(hexColor(link.color) ? { color: hexColor(link.color) } : {}),
       ...(link.cleanup === true ? { cleanup: true as const } : {}),
     });
   }

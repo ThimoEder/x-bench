@@ -33,6 +33,7 @@ import { createUpgradeRouter } from "./providers/upgrade.ts";
 import { createLaunchToken, injectToken, removeTokenFile, writeTokenFile } from "./launchToken.ts";
 import { createHostSak } from "./board/sak/sakServe.ts";
 import { createTaskSuggestions } from "./board/taskSuggestions.ts";
+import { createAppSettings } from "./settings/appSettings.ts";
 import { createBrowser } from "./browser/browser.ts";
 import { createHostTools } from "./mcp/mcp.ts";
 import { createSimulator } from "./devices/simulator.ts";
@@ -63,6 +64,7 @@ for (const [file, fields] of [[paths.sak, ["token"]], [paths.jira, ["token"]], [
 const token = createLaunchToken();
 const tokenPath = paths.launchToken(port);
 const suggestions = createTaskSuggestions(paths.suggestions);
+const appSettings = createAppSettings(paths.appSettings);
 const browser = createBrowser(paths.browserPages);
 const simulator = createSimulator({ logDir: paths.simulatorLogs });
 const builds = createBuilds({ dir: paths.simulatorBuilds });
@@ -72,7 +74,7 @@ const folders: ChatFolders = {
   projectOf: (sessionId) => app.chatFolders.projectOf(sessionId),
   move: (cwd, sessionIds, name) => app.chatFolders.move(cwd, sessionIds, name),
 };
-const hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), suggestions, browser, simulator, builds, devices, folders, routines: () => app.routineTools }), { builder: builderFolder(paths.chatHome) });
+const hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, browser, simulator, builds, devices, folders, routines: () => app.routineTools }), { builder: builderFolder(paths.chatHome) });
 const sessionTools = hostTools.sessionTools({ port, token });
 
 const grok = new GrokProvider({
@@ -94,6 +96,7 @@ const sak = createHostSak(paths.sak);
 // The index keeps each thread's model, effort and permission mode, which a load comes back without.
 const claude = new ClaudeProvider({
   sessionTools,
+  hostPlans: () => appSettings.read().planTool,
   readSettings: () => claudeSettings.read(),
   readModels: claudeModels.read,
   saveModels: claudeModels.save,
@@ -155,6 +158,7 @@ const app = createApp({
   simulator,
   builds,
   hostTools,
+  appSettings,
   terminals,
   remote,
   routines: {

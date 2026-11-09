@@ -408,7 +408,7 @@ test("on the Mac the Remote tab and the file pickers are there", async () => {
 });
 
 test("the general section keeps the Mac awake through the host, and only in the app", async () => {
-  const { container, requests } = await mount(() => ({ ok: true }), { tab: "general", app: { desktop: true, keepAwake: false } });
+  const { container, requests } = await mount(() => ({ ok: true }), { tab: "general", app: { desktop: true, keepAwake: false, planTool: false } });
   const keepAwake = must(container.querySelector<HTMLInputElement>("[data-testid=misc-block] [data-testid=keep-awake]"));
   assert.equal(keepAwake.checked, false);
   await act(async () => keepAwake.click());
@@ -416,8 +416,16 @@ test("the general section keeps the Mac awake through the host, and only in the 
   assert.equal(container.querySelector("[data-testid=routine-notify]"), null, "notifications are set per routine");
 
   // A browser tab's host has no app to keep the Mac awake.
-  const browser = await mount(() => ({ ok: true }), { tab: "general", app: { desktop: false, keepAwake: true } });
+  const browser = await mount(() => ({ ok: true }), { tab: "general", app: { desktop: false, keepAwake: true, planTool: false } });
   assert.equal(browser.container.querySelector("[data-testid=misc-block]"), null);
+});
+
+test("the experimental section turns the plan steps on through the host, in the app and in a browser tab", async () => {
+  const { container, requests } = await mount(() => ({ ok: true }), { tab: "general", app: { desktop: false, keepAwake: false, planTool: false } });
+  const planTool = must(container.querySelector<HTMLInputElement>("[data-testid=experimental-block] [data-testid=plan-tool]"));
+  assert.equal(planTool.checked, false);
+  await act(async () => planTool.click());
+  assert.deepEqual(requests, [["/api/settings", { planTool: true }, undefined]]);
 });
 
 test("the title pins as a bar once it has scrolled past its lead, and unpins at the top", async () => {

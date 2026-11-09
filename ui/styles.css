@@ -60,6 +60,7 @@
   --bar-h: 48px;
   /* An open ticket's pane. The percentage resolves at each use, so use it only where the containing block is as wide as the board. */
   --ticket-w: min(620px, 58%);
+  --settings-w: min(400px, 58%);
   --spring: cubic-bezier(0.3, 1.45, 0.45, 1);
   --spring-soft: cubic-bezier(0.22, 1, 0.36, 1);
   /* Matches WINDOW_CORNER in desktop/main.js, which rounds the desktop app's window. */
@@ -1449,7 +1450,9 @@ body.is-project-drag * {
 
 .update-card strong { display: flex; align-items: center; gap: 0.4rem; padding-right: 1.2rem; font-size: 0.85rem; }
 .update-card p { margin: 0.25rem 0 0.55rem; color: var(--muted); }
-.update-card ul { max-height: 40vh; overflow-y: auto; margin: 0 0 0.6rem; padding-left: 1rem; color: var(--composer-ink); }
+.update-card .update-notes { max-height: 40vh; overflow-y: auto; margin: 0 0 0.6rem; }
+.update-card h4 { margin: 0.5rem 0 0.2rem; color: var(--muted); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.update-card ul { margin: 0; padding-left: 1rem; color: var(--composer-ink); }
 .update-card li { margin: 0.15rem 0; }
 .update-card .update-ok { color: var(--ok); }
 .update-card .update-bad { color: var(--danger); }
@@ -6978,6 +6981,8 @@ button.voice .voice-dot {
   white-space: nowrap;
 }
 
+.board-reload.is-busy svg { animation: task-spin 0.8s linear infinite; }
+
 .board-create {
   height: 30px;
   padding: 0 0.75rem;
@@ -6992,6 +6997,8 @@ button.voice .voice-dot {
   left: 20px;
   transform-origin: top left;
   width: min(440px, calc(100% - 40px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px 16px 12px;
   border-radius: 15px;
 }
@@ -7200,6 +7207,123 @@ button.board-column-add {
   height: 26px;
   padding: 0;
 }
+
+button.board-column-collapse {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.board-column header:hover button.board-column-collapse,
+button.board-column-collapse:focus-visible { opacity: 1; }
+
+@media (hover: none) {
+  button.board-column-collapse { opacity: 1; }
+}
+
+.board-column.is-collapsed { flex: 0 0 44px; }
+
+button.board-column-strip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  border-radius: inherit;
+  color: var(--text);
+}
+
+button.board-column-strip:hover { background: var(--hover); }
+button.board-column-strip i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+.board-column-strip-title {
+  writing-mode: vertical-rl;
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+/* Its glyph ends where the text of Open in … above it ends. */
+button.icon.board-settings-open { width: 30px; height: 30px; margin-right: -12px; }
+
+/* Board settings sit in the ticket's dock, which is narrower for them. */
+.board-settings {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 14px 20px 20px;
+}
+
+.board-settings > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-right: -8px;
+}
+
+.board-settings h2 { margin: 0; font-size: 17px; font-weight: 750; letter-spacing: -0.02em; }
+
+@container board (width >= 760px) {
+  .ticket-dock.is-settings { width: var(--settings-w); }
+
+  .board-frame:has(> .ticket-dock.is-settings:not(.is-leaving)) > .board-columns,
+  .board:has(> .board-frame > .ticket-dock.is-settings:not(.is-leaving)) > :is(.board-bar, .board-note) { margin-right: calc(var(--settings-w) + var(--pane-gap)); }
+}
+
+.desk-column:has(> .board > .board-frame > .ticket-dock.is-settings:not(.is-leaving)) > .workspace-bar { margin-right: calc(var(--settings-w) + var(--pane-gap)); }
+
+.board-settings-part { margin-top: 18px; }
+.board-settings-part h3 { margin: 0 0 4px; font-size: 14px; font-weight: 700; }
+.board-settings-part .sheet-copy { margin-bottom: 10px; }
+
+.board-settings-columns {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-settings-columns li { border-radius: 10px; }
+.board-settings-columns li:hover { background: var(--wash-soft); }
+.board-settings-columns li.is-over { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--status-active) 55%, transparent); }
+.board-settings-columns li.is-hidden :is(.board-settings-name, .column-swatch) { opacity: 0.45; }
+.board-settings-columns .column-swatch { width: 12px; height: 12px; }
+.board-settings-columns .column-palette { width: fit-content; margin: 2px 0 8px 34px; }
+
+.board-settings-column {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 2px;
+  font-size: 13.5px;
+}
+
+button.icon.board-settings-grip { width: 24px; height: 30px; color: var(--faint); cursor: grab; }
+
+.board-settings-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+.sheet-field.board-settings-move {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 172px);
+  align-items: center;
+  margin: 8px 0;
+}
+
+.board-settings-move > span { display: grid; color: var(--text); font-size: 13.5px; }
+.board-settings-move small { color: var(--faint); font-size: 12px; font-weight: 450; }
 
 button.board-add {
   flex: none;

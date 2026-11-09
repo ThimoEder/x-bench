@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { isRecord } from "../../../bridge/lenient.ts";
 import { rulesForBoard, threadBrief } from "../boardRules.ts";
 import { boardTarget } from "../boardLink.ts";
-import { changeJiraLabel, jiraSite, presentColumns, readJiraConnection, resolveJiraColumn, saveJiraConnection } from "./jira.ts";
+import { changeJiraLabel, jiraSite, loadJiraBoard, presentColumns, readJiraConnection, resolveJiraColumn, saveJiraConnection } from "./jira.ts";
 import { handleBoard, type BoardContext, type PageBody } from "../board.ts";
 import { canonicalCwd } from "../../chat/sessions.ts";
 import { bindBoard, bindingFor, emptyTickets, linkTicket, readTickets, writeTickets } from "../tickets.ts";
@@ -83,6 +84,65 @@ test("board columns keep Jira's order and get a unique title each", () => {
     { title: "Doing", statuses: ["2", "3"] },
     { title: "Doing 2", statuses: [] },
   ]);
+});
+
+test("a Jira board reads its name, columns and newest change at once, then the pages after the first at once", async () => {
+  const issues = Array.from({ length: 450 }, (_, index) => ({
+    key: `RK-${index + 1}`,
+    fields: { summary: `Ticket ${index + 1}`, status: { id: "1" }, project: { id: "1", key: "RK" } },
+  }));
+  let open = 0;
+  let most = 0;
+  const fetchImpl: BoardFetch = async (url) => {
+    open += 1;
+    most = Math.max(most, open);
+    await delay(5);
+    open -= 1;
+    const parsed = new URL(url);
+    if (parsed.pathname === "/rest/agile/1.0/board/7") return json(200, { id: 7, name: "Paged" });
+    if (parsed.pathname === "/rest/agile/1.0/board/7/configuration") return json(200, { columnConfig: { columns: [{ name: "To Do", statuses: [{ id: "1" }] }] } });
+    if ((parsed.searchParams.get("jql") || "").endsWith("ORDER BY updated DESC")) return json(200, { total: issues.length, issues: [] });
+    const start = Number(parsed.searchParams.get("startAt"));
+    return json(200, { total: issues.length, issues: issues.slice(start, start + 100) });
+  };
+  const connection = { site: "https://paged.example.net", email: "me@example.com", token: "tok", enabled: true };
+
+  const { payload } = await loadJiraBoard(connection, 7, { fetchImpl });
+  assert.ok("tasks" in payload);
+  assert.deepEqual(payload.tasks.map((task) => task.id), issues.map((issue) => issue.key));
+  assert.equal(most, 4);
+
+  most = 0;
+  assert.ok("unchanged" in (await loadJiraBoard(connection, 7, { fetchImpl, activity: payload.activity })).payload);
+  assert.equal(most, 3);
+});
+
+test("a Jira page that comes back short leaves no gap in the board, which still ends at a thousand tickets", async () => {
+  const load = async (count: number) => {
+    const issues = Array.from({ length: count }, (_, index) => ({
+      key: `SH-${index + 1}`,
+      fields: { summary: `Ticket ${index + 1}`, status: { id: "1" }, project: { id: "1", key: "SH" } },
+    }));
+    const fetchImpl: BoardFetch = async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/rest/agile/1.0/board/7") return json(200, { id: 7, name: "Short" });
+      if (parsed.pathname === "/rest/agile/1.0/board/7/configuration") return json(200, { columnConfig: { columns: [{ name: "To Do", statuses: [{ id: "1" }] }] } });
+      if ((parsed.searchParams.get("jql") || "").endsWith("ORDER BY updated DESC")) return json(200, { total: issues.length, issues: [] });
+      const start = Number(parsed.searchParams.get("startAt"));
+      return json(200, { total: issues.length, issues: issues.slice(start, start + (start === 100 ? 50 : 100)) });
+    };
+    const { payload } = await loadJiraBoard({ site: "https://short.example.net", email: "me@example.com", token: "tok", enabled: true }, 7, { fetchImpl });
+    assert.ok("tasks" in payload);
+    return { ids: payload.tasks.map((task) => task.id), all: issues.map((issue) => issue.key), truncated: payload.truncated };
+  };
+
+  const whole = await load(250);
+  assert.deepEqual(whole.ids, whole.all);
+  assert.equal(whole.truncated, false);
+
+  const cut = await load(1050);
+  assert.deepEqual(cut.ids, cut.all.slice(0, 1000));
+  assert.equal(cut.truncated, true);
 });
 
 test("a Jira binding round-trips, and a chat can link to an issue key", () => {

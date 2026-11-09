@@ -49,17 +49,18 @@ export function threadCount(
   return count;
 }
 
-export function ticketStatus(links: readonly Partial<Pick<TicketLink, "status">>[] | null | undefined): string {
-  let best = "";
-  let rank = RANK.length;
+// The color of a chat's bar in the sidebar: its foremost ticket's column color on the board, or else the one the
+// status name stands for.
+export function ticketTone(links: readonly Partial<Pick<TicketLink, "status" | "color">>[] | null | undefined): string | undefined {
+  let best: Partial<Pick<TicketLink, "status" | "color">> | undefined;
+  let rank = RANK.length + 1;
   for (const link of links || []) {
-    const status = statusKey(link?.status);
-    const score = RANK.indexOf(status);
+    const score = RANK.indexOf(statusKey(link?.status));
     const place = score < 0 ? RANK.length : score;
     if (place < rank) {
       rank = place;
-      best = status;
+      best = link;
     }
   }
-  return best;
+  return best && (best.color || statusTone(best.status));
 }

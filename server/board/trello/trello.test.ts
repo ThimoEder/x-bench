@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -285,9 +285,10 @@ test("creating, moving, and commenting on a Trello card stays off SAK, and its t
   };
   try {
     const tickets = path.join(root, "tickets.json");
+    const saved = path.join(root, "saved");
     const sent: Sent[] = [];
     const ctx: TestContext = {
-      files: { tickets, connections: { sak: path.join(root, "sak.json"), trello: path.join(root, "trello.json"), jira: path.join(root, "jira.json") } },
+      files: { tickets, connections: { sak: path.join(root, "sak.json"), trello: path.join(root, "trello.json"), jira: path.join(root, "jira.json") }, savedBoards: saved },
       isDirectory: () => true,
       fetchOptions: { fetchImpl },
       publish() {},
@@ -357,6 +358,12 @@ test("creating, moving, and commenting on a Trello card stays off SAK, and its t
     await handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}&activity=${encodeURIComponent(state.activity)}`, "http://127.0.0.1"), {}, ctx);
     assert.equal(at(sent[0]?.body, "unchanged"), true);
     sent.length = 0;
+    await handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}`, "http://127.0.0.1"), {}, ctx);
+    await handleBoard({ method: "GET" }, {}, new URL(`/api/board/board?cwd=${encodeURIComponent(root)}&saved=1`, "http://127.0.0.1"), {}, ctx);
+    assert.ok(at(sent[0]?.body, "tasks"));
+    assert.deepEqual(JSON.parse(JSON.stringify(sent[1]?.body)), { ...JSON.parse(JSON.stringify(sent[0]?.body)), activity: "" });
+    assert.equal(statSync(path.join(saved, readdirSync(saved)[0] ?? "")).mode & 0o777, 0o600);
+    sent.length = 0;
     await handleBoard({ method: "PATCH" }, {}, new URL(`/api/board/tasks/${card}`, "http://127.0.0.1"), {
       title: "Probe",
       description: "Changed",
@@ -364,6 +371,8 @@ test("creating, moving, and commenting on a Trello card stays off SAK, and its t
     }, ctx);
     assert.equal(sent[0]?.status, 409);
     assert.equal(at(sent[0]?.body, "error"), "Someone else edited this ticket");
+    await handleBoard({ method: "DELETE" }, {}, new URL("/api/board/boards", "http://127.0.0.1"), { cwd: root }, ctx);
+    assert.deepEqual(readdirSync(saved), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

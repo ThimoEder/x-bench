@@ -9,6 +9,7 @@ import { click, installDom, wait } from "../testing/dom.ts";
 const dom = installDom();
 const { createRoot } = await import("react-dom/client");
 const { TicketChips, ticketNumber } = await import("./TicketCreate.tsx");
+const { keepBoard } = await import("./boardCache.ts");
 
 const mounted: Root[] = [];
 
@@ -59,6 +60,28 @@ test("a ticket shows as its board number, or its status when it has none", () =>
   assert.equal(ticketNumber({ taskId: 9001, reference: 142 }), "#142");
   assert.equal(ticketNumber({ taskId: "77", reference: null }), "#77");
   assert.equal(ticketNumber({ taskId: "5f1c0a2b9d3e4f5a6b7c8d9e", reference: null }), null);
+});
+
+test("a chip and its statuses take the colors of the board's columns, with the board settings applied", async () => {
+  keepBoard("/repo", {
+    columns: [{ value: "open", title: "open", color: "#0079bf" }, { value: "active", title: "active" }],
+    tasks: [],
+    settings: { columns: { active: { color: "purple" } }, order: [], moves: {} },
+  });
+  const container = await mount([]);
+  const chip = container.querySelector<HTMLElement>('[data-testid="ticket-chip"]')!;
+  assert.match(chip.getAttribute("style") ?? "", /--ticket-status: ?#c377e0/);
+  await act(async () => {
+    click(chip);
+    await wait(10);
+  });
+  const open = [...document.querySelectorAll<HTMLElement>(".ticket-card-statuses button")].find((item) => item.textContent?.includes("open"));
+  assert.match(open?.getAttribute("style") ?? "", /--status: ?#0079bf/);
+});
+
+test("a chip shows the color the host kept with its link, as the sidebar does", async () => {
+  const container = await mount([], [], async () => ({}), { ticket: { ...link, color: "#51e898" } });
+  assert.match(container.querySelector('[data-testid="ticket-chip"]')?.getAttribute("style") ?? "", /--ticket-status: ?#51e898/);
 });
 
 test("the ticket card reads the description, opens the ticket from its title and moves it between statuses", async () => {

@@ -53,6 +53,13 @@ export function boardRoutes(host: Host): Route[] {
       changeSidebar((state) => nameUntitled(state, sessionId, stripHidden(title)));
     },
     projectHome: checkoutOf,
+    bindingChanged(folder) {
+      for (const session of providers.sessions()) {
+        if (!session.cwd) continue;
+        const inFolder = [session.cwd, checkoutOf(session.cwd)].some((cwd) => cwd && canonicalCwd(cwd) === folder);
+        if (inFolder) providers.forSession(session.id).updateRules?.(session.id, sessionRules(session.cwd));
+      }
+    },
     async openBoardPage(page) {
       if (!host.browser.view().available) throw Object.assign(new Error("Open the board here from X Bench's desktop app"), { status: 503 });
       return host.browser.call("openBoardPage", { ...page });

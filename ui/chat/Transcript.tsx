@@ -8,6 +8,7 @@ import { useDesk } from "../deskContext.ts";
 import { SessionShelf, TranscriptHeader } from "./TranscriptHeader.tsx";
 import { MessageList, TurnCards } from "./messages/MessageList.tsx";
 import { Queue } from "./Queue.tsx";
+import { BoardOffer } from "../board/BoardOffer.tsx";
 import { TaskCards } from "../board/TaskCards.tsx";
 import { Composer } from "./composer/Composer.tsx";
 import { FolderGone } from "../folder/FolderGone.tsx";
@@ -142,6 +143,7 @@ export function Transcript({ session, catalog = null, providers = [], solo, canS
         onStopTask={(taskId) => void act("/api/task/stop", { taskId }).catch(() => {})}
         act={act}
         agentLabel={provider?.label}
+        footer={plain || drafting || running ? null : <BoardOffer session={session} />}
       />
       <div className="composer-stack">
         <TurnCards session={session} providerLabel={session.errorProvider ? providerLabel(session.errorProvider) : provider?.label} agentLabel={provider?.label} running={running} remote={remote} act={act} />

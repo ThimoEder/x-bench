@@ -10,6 +10,7 @@ import { z } from "zod";
 import { commandVersion, isExecutable } from "../../bridge/command.ts";
 import { isMode, type Detected, type Mode, type ModeChoice, type Provider, type ProviderStatus } from "../../bridge/provider.ts";
 import { claudeBinaries, claudeConfigFolders, environmentConfigDir, findClaude } from "../../bridge/claude/install.ts";
+import { adapterEnvironment } from "../../bridge/adapter.ts";
 import { collapseHome, expandHome } from "../../bridge/home.ts";
 import { createClaudeSettings, type ClaudeFile } from "./claudeSettings.ts";
 import { isDirectory } from "../chat/sessions.ts";
@@ -96,12 +97,13 @@ export function providerRoutes(host: Host): Route[] {
   function claudeView(): ClaudeSettingsView {
     const stored = claudeSettings.readFile();
     const installed = findClaude();
+    const env = adapterEnvironment();
     return {
-      configDir: stored.configDir ?? collapseHome(environmentConfigDir()),
+      configDir: stored.configDir ?? collapseHome(environmentConfigDir(env)),
       configDirSaved: Boolean(stored.configDir),
       executable: stored.executable ?? "",
       installed: installed ? collapseHome(installed) : "",
-      folders: claudeConfigFolders(),
+      folders: claudeConfigFolders(os.homedir(), env),
       binaries: claudeBinaries(),
       unreadable: claudeSettings.unreadable(),
     };

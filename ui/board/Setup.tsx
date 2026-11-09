@@ -52,7 +52,7 @@ export interface BoardSetupProps {
 
 const DEFAULT_SAK = "http://127.0.0.1:4345";
 
-// The Boards tab of Settings: the SAK, Trello and Jira connections.
+// The Boards tab of Settings: the Local (SAK), Trello and Jira connections.
 export function BoardSetup({ call }: BoardSetupProps) {
   const [status, setStatus] = useState<SakView | null>(null);
   const [enabled, setEnabled] = useState(false);
@@ -117,7 +117,7 @@ export function BoardSetup({ call }: BoardSetupProps) {
       setSavedAddress(next.baseUrl || address);
       setToken("");
       if (next.enabled && !next.reachable) {
-        setError("SAK is not reachable");
+        setError("The local board is not reachable");
         return;
       }
       setSaved(true);
@@ -140,7 +140,7 @@ export function BoardSetup({ call }: BoardSetupProps) {
       const reply = checked(await call("/api/sak/connection", { enabled: next }, "PUT"), isSakView);
       setStatus(reply);
       setEnabled(Boolean(reply.enabled));
-      if (reply.enabled && !reply.reachable) setError("SAK is not reachable");
+      if (reply.enabled && !reply.reachable) setError("The local board is not reachable");
     } catch (failure) {
       setEnabled(Boolean(status.enabled));
       setError(messageOf(failure));
@@ -228,7 +228,7 @@ export function BoardSetup({ call }: BoardSetupProps) {
       </p>
       <BoardCard
         id="sak"
-        name="SAK"
+        name="Local"
         enabled={enabled}
         busy={busy}
         onEnabled={(next) => {
@@ -261,13 +261,13 @@ export function BoardSetup({ call }: BoardSetupProps) {
               setToken(event.target.value);
               setSaved(false);
             }}
-            placeholder={status?.configured ? "Stored token stays if this is empty" : "Leave empty to set up SAK on this Mac"}
+            placeholder={status?.configured ? "Stored token stays if this is empty" : "Leave empty to set up a board on this Mac"}
             spellCheck={false}
             autoComplete="off"
           />
         </label>
         <p className="sheet-copy">
-          Built by <a href="https://github.com/agrapine" target="_blank" rel="noreferrer">Alexandru Agrapine</a> · <a href="https://git.swipelab.com/sx/sak" target="_blank" rel="noreferrer">git.swipelab.com/sx/sak</a>
+          Powered by <a href="https://git.swipelab.com/sx/sak" target="_blank" rel="noreferrer">SAK</a>
         </p>
       </BoardCard>
       <BoardCard

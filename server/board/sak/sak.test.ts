@@ -246,8 +246,8 @@ test("a SAK that times out, cannot be reached or sends a readable code reads as 
   };
   const cases: [BoardFetch, number, string][] = [
     [async () => new Response(JSON.stringify({ error: "invalid" }), { status: 400 }), 400, "invalid"],
-    [thrown(Object.assign(new Error("aborted"), { name: "AbortError" })), 504, "SAK did not answer"],
-    [thrown(new TypeError("fetch failed")), 502, "SAK is not reachable"],
+    [thrown(Object.assign(new Error("aborted"), { name: "AbortError" })), 504, "The local board did not answer"],
+    [thrown(new TypeError("fetch failed")), 502, "The local board is not reachable"],
   ];
   for (const [fetchImpl, status, message] of cases) {
     const failure = await sakFetch(connection, "GET", "/api/health", undefined, { fetchImpl }).then(
@@ -292,7 +292,7 @@ test("setup can turn SAK off without dropping the saved token", async () => {
     sent.length = 0;
     await handleBoard({ method: "GET" }, {}, new URL("/api/sak/projects", "http://127.0.0.1"), {}, ctx);
     assert.equal(sent[0]?.status, 400);
-    assert.match(String(at(sent[0]?.body, "error")), /Enable SAK in Setup/);
+    assert.match(String(at(sent[0]?.body, "error")), /Enable the local board in Setup/);
   } finally {
     sak.server.close();
     rmSync(root, { recursive: true, force: true });
@@ -401,6 +401,24 @@ test("a board request pages until the total is covered", async () => {
     }, 7, "");
     assert.equal(asked.items.length, 2000);
     assert.equal(asked.truncated, true);
+  } finally {
+    sak.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("binding or unbinding a folder tells the host, so its open chats take the rules or drop them", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "grok-sak-"));
+  const sak = await fakeSak({ auth: [], calls: [], tasks: [] });
+  try {
+    const kit = harness(sak.baseUrl, root);
+    const changed: string[] = [];
+    kit.ctx.bindingChanged = (folder) => changed.push(folder);
+    await handleBoard({ method: "POST" }, {}, new URL("/api/board/boards", "http://127.0.0.1"), { cwd: root, projectId: 7 }, kit.ctx);
+    const [folder] = Object.keys(readTickets(kit.tickets).bindings);
+    assert.deepEqual(changed, [folder]);
+    await handleBoard({ method: "DELETE" }, {}, new URL("/api/board/boards", "http://127.0.0.1"), { cwd: root }, kit.ctx);
+    assert.deepEqual(changed, [folder, folder]);
   } finally {
     sak.server.close();
     rmSync(root, { recursive: true, force: true });
@@ -798,7 +816,7 @@ test("a ticket added from a column lands in it, the status menu lists the other 
     assert.deepEqual(list(at(kit.sent[0]?.body, "moves")).map((move) => at(move, "status")), ["active", "review", "done", null]);
     kit.sent.length = 0;
     await handleBoard({ method: "PATCH" }, {}, new URL("/api/board/tasks/41/comments/1", "http://127.0.0.1"), { body: "Changed" }, kit.ctx);
-    assert.deepEqual(kit.sent[0], { status: 400, body: { error: "SAK keeps comments as they were written", code: null } });
+    assert.deepEqual(kit.sent[0], { status: 400, body: { error: "The local board keeps comments as they were written", code: null } });
     kit.sent.length = 0;
     await handleBoard({ method: "DELETE" }, {}, new URL("/api/board/tasks/41/labels/a%2F..", "http://127.0.0.1"), {}, kit.ctx);
     assert.equal(kit.sent[0]?.status, 400);
@@ -848,10 +866,10 @@ test("a relation is created and removed in the direction SAK stores it, and SAK'
       [409, "relation_exists", 409, "These tickets already have that relation"],
       [400, "cycle", 400, "That would make a loop"],
       [404, "not_found", 404, "There is no such ticket"],
-      [401, "unauthorized", 401, "The SAK token was refused"],
+      [401, "unauthorized", 401, "The local board refused its token"],
       [409, "conflict", 409, "Someone else edited this ticket"],
-      [502, "bad_gateway", 502, "SAK is not reachable"],
-      [422, "invalid_value", 422, "SAK refused the request"],
+      [502, "bad_gateway", 502, "The local board is not reachable"],
+      [422, "invalid_value", 422, "The local board refused the request"],
     ];
     for (const [status, error, sentStatus, message] of refusals) {
       state.refuseRelation = { status, error };

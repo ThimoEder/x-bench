@@ -5,6 +5,8 @@ import { mkdir, rm, rmdir } from "node:fs/promises";
 import path from "node:path";
 import { gitExec, parseGitWorktreeList, type ExecFile } from "./folderGit.ts";
 import { branchSlug, freeBranch, runIn } from "./branch.ts";
+import { presentGit, type GitView } from "./git.ts";
+import { localGitDiffs, localGitStatus } from "./localGit.ts";
 
 export interface CreatedWorktree {
   path: string;
@@ -111,11 +113,11 @@ export function appWorktreeOf(cwd: string, root: string): string | null {
   return group && name ? path.join(root, group, name) : null;
 }
 
-// Removes a worktree with its ignored files and keeps its branch. Git refuses one with modified or untracked files.
-export async function removeWorktree(folder: string): Promise<void> {
+// Removes a worktree with its ignored files and keeps its branch. Without force, git refuses one with modified or untracked files.
+export async function removeWorktree(folder: string, force = false): Promise<void> {
   const commonDir = path.resolve(folder, (await gitExec(folder, ["rev-parse", "--git-common-dir"])).trim());
   try {
-    await gitExec(commonDir, ["worktree", "remove", folder]);
+    await gitExec(commonDir, ["worktree", "remove", ...(force ? ["--force"] : []), folder]);
   } catch (error) {
     throw new Error((error instanceof Error ? error.message : String(error)).replace(/^fatal:\s*/, "").replace(/, use --force to delete it$/, ""), { cause: error });
   }
@@ -123,11 +125,35 @@ export async function removeWorktree(folder: string): Promise<void> {
   await rmdir(path.dirname(folder)).catch(() => {});
 }
 
-// Removes worktree unless a chat other than sessionId runs in it. Answers why it stays, or "" once it is gone.
-export async function removeChatWorktree(worktree: string, sessionId: string, rows: readonly { id: string; cwd?: string }[], root: string): Promise<string> {
-  if (rows.some((row) => row.id !== sessionId && row.cwd && appWorktreeOf(row.cwd, root) === worktree)) return "The worktree stays: another chat uses it.";
+type ChatRows = readonly { id: string; cwd?: string }[];
+
+function usedByAnotherChat(worktree: string, sessionId: string, rows: ChatRows, root: string): boolean {
+  return rows.some((row) => row.id !== sessionId && row.cwd && appWorktreeOf(row.cwd, root) === worktree);
+}
+
+// The files removing worktree would throw away, or null when nothing would be lost or another chat keeps it.
+export async function worktreeChanges(worktree: string, sessionId: string, rows: ChatRows, root: string): Promise<GitView | null> {
+  if (usedByAnotherChat(worktree, sessionId, rows, root) || !existsSync(worktree)) return null;
   try {
-    await removeWorktree(worktree);
+    const [status, diffs, staged] = await Promise.all([localGitStatus(worktree), localGitDiffs(worktree), gitExec(worktree, ["diff", "--cached", "--name-only", "--no-renames", "-z"])]);
+    const changes = presentGit(status, diffs);
+    const listed = new Set(changes.files.map((file) => file.path));
+    // A staged change the working tree undid differs from HEAD only in the index.
+    for (const file of staged.split("\0")) {
+      if (file && !listed.has(file)) changes.files.push({ path: file, type: "edit", additions: 0, deletions: 0 });
+    }
+    changes.files.sort((a, b) => String(a.path).localeCompare(String(b.path)));
+    return changes.files.length ? changes : null;
+  } catch (error) {
+    throw new Error(`The worktree's changes could not be read: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+}
+
+// Removes worktree unless a chat other than sessionId runs in it. Answers why it stays, or "" once it is gone.
+export async function removeChatWorktree(worktree: string, sessionId: string, rows: ChatRows, root: string, force = false): Promise<string> {
+  if (usedByAnotherChat(worktree, sessionId, rows, root)) return "The worktree stays: another chat uses it.";
+  try {
+    await removeWorktree(worktree, force);
     return "";
   } catch (error) {
     return `The worktree stays: ${error instanceof Error ? error.message : String(error)}`;

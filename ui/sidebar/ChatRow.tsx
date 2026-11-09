@@ -4,6 +4,7 @@ import type { ProviderView, SidebarProject, SidebarSession } from "../../server/
 import { RevealTitle } from "../chat/RevealTitle.tsx";
 import { ProviderMark } from "../chat/messages/providerMark.tsx";
 import { statusTone, ticketStatus } from "../board/ticketStatus.ts";
+import type { WorktreeBody } from "../git/WorktreeDiscard.tsx";
 import { FloatingMenu } from "./FloatingMenu.tsx";
 import { ArchiveIcon, PinIcon, WorktreeIcon } from "./icons.tsx";
 import { PageFade } from "./paging.tsx";
@@ -158,7 +159,9 @@ function ChatMenu({ project, session, menu: { page, name: folderName = "", confi
 
   function archive(worktree: boolean) {
     closeMenu();
-    call?.(session.archived ? "/api/unarchive" : "/api/archive", worktree ? { sessionId: session.id, worktree } : { sessionId: session.id }).catch(() => {});
+    if (!call) return;
+    const send = (body: Partial<WorktreeBody>) => call(session.archived ? "/api/unarchive" : "/api/archive", { sessionId: session.id, ...body });
+    (worktree ? list.guardWorktree("archive", send) : send({})).catch(() => {});
   }
 
   function copySessionId() {

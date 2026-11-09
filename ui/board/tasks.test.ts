@@ -62,12 +62,12 @@ test("a background server stays listed after the turn goes idle", () => {
     backgroundTasks: [
       { id: "task-1", status: "running", kind: "bash", label: "Start the UI server" },
       { id: "task-2", status: "completed", kind: "bash", label: "Finished build" },
-      { id: "task-3", status: "running", kind: "monitor", label: "Watch the UI on port 8787" },
+      { id: "task-3", status: "running", kind: "monitor", label: "Watch the UI on port 8787", canStop: false as const },
     ],
   };
   assert.deepEqual(runningTasks(session), [
     { id: "task-1", label: "Start the UI server", agent: false },
-    { id: "task-3", label: "Watch the UI on port 8787", agent: false },
+    { id: "task-3", label: "Watch the UI on port 8787", agent: false, canStop: false },
   ]);
 });
 

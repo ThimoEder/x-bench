@@ -58,12 +58,12 @@ export type RunSak = (binary: string, args: string[]) => Promise<{ stdout: strin
 // A SAK board of this host's own: sak.db next to sak.json, with a token minted into it.
 // An existing sak.db there keeps its projects and gets one more token.
 export async function setUpLocalSak(connectionFile: string, locations: SakLocations, run: RunSak): Promise<void> {
-  if (!existsSync(locations.binary)) throw sakError(503, "SAK is not installed with this app");
+  if (!existsSync(locations.binary)) throw sakError(503, "The local board is not installed with this app");
   const database = path.join(path.dirname(connectionFile), "sak.db");
   mkdirSync(path.dirname(database), { recursive: true });
   const { stdout } = await run(locations.binary, ["token", "create", "--db", database, "--name", "X Bench"]);
   const token = /sak_[0-9a-f]+/.exec(stdout)?.[0];
-  if (!token) throw sakError(502, "SAK did not create a token");
+  if (!token) throw sakError(502, "The local board did not create a token");
   const { baseUrl, website } = readConnection(connectionFile);
   writeConnection({ baseUrl, token, enabled: true, database, website }, connectionFile);
 }
@@ -209,7 +209,7 @@ export function createHostSak(connectionFile: string): SakServe {
   return {
     ...serve,
     async setUp(baseUrl: string) {
-      if (await sakIsUp({ ...readConnection(connectionFile), baseUrl, token: "" })) throw sakError(400, "A SAK already runs at this address. Add its token");
+      if (await sakIsUp({ ...readConnection(connectionFile), baseUrl, token: "" })) throw sakError(400, "A local board already runs at this address. Add its token");
       await setUpLocalSak(connectionFile, locations, run);
     },
   };

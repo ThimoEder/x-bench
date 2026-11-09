@@ -2,6 +2,7 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import net from "node:net";
 import type { Readable } from "node:stream";
 import type { RpcHandlers, Transport } from "../rpc.ts";
+import { adapterEnvironment } from "../adapter.ts";
 import { randomBytes } from "node:crypto";
 
 export function randomSecret() {
@@ -100,7 +101,7 @@ export class AgentProcess {
       {
         detached: true,
         stdio: ["ignore", "ignore", "pipe"],
-        env: { ...process.env, GROK_DISABLE_AUTOUPDATER: "1" },
+        env: adapterEnvironment({ GROK_DISABLE_AUTOUPDATER: "1" }),
       },
     );
     const pid = proc.pid;

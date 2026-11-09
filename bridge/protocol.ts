@@ -199,6 +199,8 @@ export interface BackgroundTask {
   label: string;
   // The tool call that started the task, when the harness names it: a subagent's Agent call.
   toolCallId?: string;
+  // False for a task the harness cannot stop, such as a Monitor.
+  canStop?: false;
 }
 
 export interface CatalogEntry {

@@ -1,7 +1,7 @@
 {
   "name": "x-bench",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "type": "module",
   "main": "desktop/main.js",
@@ -16,14 +16,14 @@
     "dist": "node node_modules/electron/install.js && vite build && node desktop/bundle-host.js && node desktop/bundle-sak.js && bash desktop/devices/sim-helper/build.sh && bash desktop/devices/android-helper/build.sh && bash desktop/unity/unity-view/build.sh && electron-builder --config desktop/electron-builder.json",
     "test": "node --test \"bridge/*.test.*\" \"bridge/*/*.test.*\" \"desktop/**/*.test.*\" \"server/**/*.test.*\" \"ui/**/*.test.*\"",
     "typecheck": "tsc && tsc -p tsconfig.worklet.json",
-    "lint": "oxlint --max-warnings=25",
+    "lint": "oxlint --max-warnings=24",
     "smoke": "node bridge/smoke.mjs",
     "postinstall": "patch-package"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.97.0",
-    "@agentclientprotocol/codex-acp": "2.5.0",
-    "@anthropic-ai/claude-agent-sdk": "0.3.310",
+    "@agentclientprotocol/claude-agent-acp": "0.101.0",
+    "@agentclientprotocol/codex-acp": "2.6.0",
+    "@anthropic-ai/claude-agent-sdk": "0.3.318",
     "@ngrok/ngrok": "1.7.0",
     "electron-updater": "^6.8.12",
     "node-pty": "1.1.0",
@@ -37,7 +37,7 @@
     "lodash-es": "^4.18.1"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "^2.0.2",
+    "@agentclientprotocol/sdk": "^2.4.0",
     "@types/node": "^22.20.4",
     "@types/qrcode": "1.5.6",
     "@types/react": "^19.3.0",

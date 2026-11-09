@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { GrokProvider } from "../bridge/grok/provider.ts";
 import { ClaudeProvider } from "../bridge/claude/provider.ts";
 import { ChatGptProvider } from "../bridge/chatgpt/provider.ts";
+import { setShellEnvironment } from "../bridge/adapter.ts";
 import { createClaudeSettings } from "./providers/claudeSettings.ts";
 import { findProgram } from "../bridge/command.ts";
 import { createHarnessCommands } from "./chat/harnessCommands.ts";
@@ -24,7 +25,7 @@ import { createVoice, modelDir } from "./voice/voice.ts";
 import { createQuietVolume } from "./voice/quietVolume.ts";
 import { createDevices } from "./devices/devices.ts";
 import { messageOf, sendJson } from "./http.ts";
-import { grokMessage, isParentPort, isStopMessage, keepAwakeMessage, listeningMessage, notifyMessage, openSessionOf, secretKeyOf, type ParentPort } from "./parentPort.ts";
+import { grokMessage, isParentPort, isStopMessage, keepAwakeMessage, listeningMessage, notifyMessage, openSessionOf, startOf, type ParentPort, type StartMessage } from "./parentPort.ts";
 import { sealFile, setSecretKey } from "./secrets/secrets.ts";
 import { contentType, createStaticUi, pagePolicy, takeUiSettings } from "./staticUi.ts";
 import { refusePage } from "./apiGuard.ts";
@@ -53,8 +54,9 @@ const uiRoot = path.join(repoRoot, "ui");
 const port = Number(process.env.PORT || 8787);
 const uiSettings = takeUiSettings();
 const desktop: unknown = Reflect.get(process, "parentPort");
-const sealing = isParentPort(desktop) ? await secretKey(desktop) : { key: null, dev: true };
+const sealing = isParentPort(desktop) ? await started(desktop) : { key: null, dev: true, shellEnv: {} };
 setSecretKey(sealing.key, sealing.dev);
+setShellEnvironment(sealing.shellEnv);
 const paths = xBenchPaths(os.homedir(), process.env, sealing.dev);
 for (const [file, fields] of [[paths.sak, ["token"]], [paths.jira, ["token"]], [paths.trello, ["apiKey", "token"]], [paths.remoteSettings, ["authtoken"]]] as const) sealFile(file, fields);
 // A new token each launch. The page gets it in index.html, scripts from the file.
@@ -375,11 +377,11 @@ if (isParentPort(desktop)) {
   });
 }
 
-function secretKey(port: ParentPort): Promise<{ key: string | null; dev: boolean }> {
+function started(port: ParentPort): Promise<StartMessage> {
   return new Promise((resolve) => {
     port.on("message", ({ data }) => {
-      const key = secretKeyOf(data);
-      if (key !== undefined) resolve(key);
+      const start = startOf(data);
+      if (start !== undefined) resolve(start);
     });
   });
 }

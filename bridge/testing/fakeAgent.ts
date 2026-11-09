@@ -502,6 +502,12 @@ export function createFakeAgent(dialect: FakeDialect, store: FakeStore, { send, 
           hanging = { promptId: message.id, sessionId };
           return;
         }
+        if (text.includes("MONITOR")) {
+          update(sessionId, { sessionUpdate: "async_task_spawned", asyncTaskId: "monitor-1", name: "monitor", taskType: "local_monitor", description: "Watch the log", canStop: false }, false);
+          update(sessionId, { sessionUpdate: "async_task_progress", asyncTaskId: "monitor-1", state: "running" }, false);
+          reply(message.id, { stopReason: "end_turn" });
+          return;
+        }
         if (text.includes("TASK")) {
           update(sessionId, { sessionUpdate: "async_task_spawned", asyncTaskId: "task-1", name: "sleep", taskType: "local_bash", description: "sleep 1 && echo done" }, false);
           reply(message.id, { stopReason: "end_turn" });

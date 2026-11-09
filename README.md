@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Node.js-22.18%2B-000000?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node.js 22.18 or newer">
   <img src="https://img.shields.io/badge/works%20with-Grok%20Build%20%C2%B7%20Claude%20Code%20%C2%B7%20Codex-000000?style=flat-square" alt="Works with Grok Build, Claude Code and Codex">
-  <img src="https://img.shields.io/badge/boards-SAK%20%C2%B7%20Trello%20%C2%B7%20Jira-000000?style=flat-square" alt="Boards from SAK, Trello and Jira">
+  <img src="https://img.shields.io/badge/boards-Local%20%C2%B7%20Trello%20%C2%B7%20Jira-000000?style=flat-square" alt="Boards: Local, Trello and Jira">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-000000?style=flat-square" alt="MIT license"></a>
 </p>
 
@@ -30,7 +30,7 @@ X Bench is a Mac app around the coding agent you already use. It drives Grok Bui
 
 ## Features
 
-- **Board in the loop**: start a chat from a SAK, Trello or Jira ticket, and the agent moves the ticket as it works.
+- **Board in the loop**: start a chat from a Local, Trello or Jira ticket, and the agent moves the ticket as it works.
 - **Suggestions** for the follow-up work the agent spots, to start in a new worktree, file as a ticket or swipe away.
 - **One sidebar** for every project and chat, marked while an agent works, waits on you or has news.
 - **Review pane** with the branch's diff, a file tree, plan approval and the pull request's checks.
@@ -39,7 +39,7 @@ X Bench is a Mac app around the coding agent you already use. It drives Grok Bui
 - **Shared browser** the agent drives while you watch, with its console and network.
 - **iOS simulators and Android emulators** streamed live, which the agent builds for, taps and reads.
 - **Terminal** in the session folder that keeps running while you switch chats.
-- **Routines** that run a prompt on a schedule, each run in a fresh chat.
+- **Routines** that run a prompt on a schedule, each run in a fresh chat, grouped by project.
 - **Dictation** with an on-device speech model.
 - **Your phone** as a remote over ngrok or the local network.
 
@@ -59,7 +59,7 @@ A board is optional. Each project folder connects to one in the board's setup:
 
 | Board | Connect with |
 | --- | --- |
-| [SAK](https://git.swipelab.com/sx/sak) | No account: it ships with the app and runs on your Mac. |
+| Local, powered by [SAK](https://git.swipelab.com/sx/sak) | No account: it ships with the app and runs on your Mac. |
 | Trello | Your Trello API key and token. |
 | Jira Cloud | Your site, Atlassian email and [API token](https://id.atlassian.com/manage-profile/security/api-tokens). |
 

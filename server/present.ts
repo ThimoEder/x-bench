@@ -219,6 +219,7 @@ export function presentSession(session: SessionState | null | undefined, windows
       status: task.status || "",
       label: task.label || "Background task",
       ...(task.toolCallId ? { toolCallId: task.toolCallId } : {}),
+      ...(task.canStop === false ? { canStop: false as const } : {}),
     })),
     queue: session.queue.map(presentQueue),
     suggestion: typeof session.suggestion === "string" && session.suggestion.trim() ? session.suggestion.trim() : null,

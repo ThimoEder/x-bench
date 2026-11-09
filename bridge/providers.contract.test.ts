@@ -723,6 +723,18 @@ test("claude: settings are read when they matter, so a problem the settings repo
   }
 });
 
+test("claude: a monitor stays a task the adapter cannot stop through its later updates", async () => {
+  const { provider, cleanup } = claudeHarness();
+  try {
+    await provider.start();
+    const session = await provider.createSession({ cwd: os.tmpdir() });
+    await provider.prompt(session.id, "MONITOR");
+    assert.deepEqual(provider.getSession(session.id)?.backgroundTasks, [{ id: "monitor-1", kind: "local_monitor", status: "running", label: "Watch the log", canStop: false }]);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("claude: a background task shows while it runs and ends when Claude says so", async () => {
   const { provider, cleanup } = claudeHarness();
   try {
@@ -897,6 +909,117 @@ for (const [name, make] of harnesses) {
     }
   });
 }
+
+for (const [name, harness] of [["claude", () => claudeHarness()], ["chatgpt", () => chatgptHarness()], ["grok", () => grokHarness()]] as const) {
+  test(`${name}: a chat whose folder got a board gets the rules with its next prompt only, also after closing it, and its transcript leaves them out`, async () => {
+    const { provider, store, cleanup } = harness();
+    try {
+      await provider.start();
+      const session = await provider.createSession({ cwd: os.tmpdir() });
+      provider.updateRules?.(session.id, "Move tickets.");
+      await provider.forgetSession(session.id);
+      await provider.loadSession(session.id, os.tmpdir());
+      await provider.prompt(session.id, "hello");
+      await provider.prompt(session.id, "again");
+      const sent = (store().sessions[session.id]?.history ?? []).flatMap((line) =>
+        JSON.stringify(line).includes("user_message_chunk") ? [(line as { params: { update: { content: { text: string } } } }).params.update.content.text] : [],
+      );
+      assert.deepEqual(sent, ["<x-bench-board-rules>\nMove tickets.\n</x-bench-board-rules>\n\nhello", "again"]);
+      assert.deepEqual(texts(provider.getSession(session.id)).filter((line) => line.startsWith("user:")), ["user:hello", "user:again"]);
+      await provider.forgetSession(session.id);
+      assert.deepEqual(texts((await provider.loadSession(session.id, os.tmpdir())) ?? null).filter((line) => line.startsWith("user:")), ["user:hello", "user:again"]);
+    } finally {
+      await cleanup();
+    }
+  });
+}
+
+for (const [name, harness] of [["claude", () => claudeHarness()], ["chatgpt", () => chatgptHarness()], ["grok", () => grokHarness()]] as const) {
+  test(`${name}: a slash command leaves the board rules for the next plain prompt, and empty rules drop them`, async () => {
+    const { provider, store, cleanup } = harness();
+    try {
+      await provider.start();
+      const session = await provider.createSession({ cwd: os.tmpdir() });
+      provider.updateRules?.(session.id, "Move tickets.");
+      await provider.prompt(session.id, "/compact");
+      await provider.prompt(session.id, "hello");
+      provider.updateRules?.(session.id, "Move tickets.");
+      provider.updateRules?.(session.id, "");
+      await provider.prompt(session.id, "again");
+      const sent = (store().sessions[session.id]?.history ?? []).flatMap((line) =>
+        JSON.stringify(line).includes("user_message_chunk") ? [(line as { params: { update: { content: { text: string } } } }).params.update.content.text] : [],
+      );
+      assert.deepEqual(sent, ["/compact", "<x-bench-board-rules>\nMove tickets.\n</x-bench-board-rules>\n\nhello", "again"]);
+    } finally {
+      await cleanup();
+    }
+  });
+}
+
+for (const [name, harness] of [["claude", () => claudeHarness()], ["chatgpt", () => chatgptHarness()], ["grok", () => grokHarness()]] as const) {
+  test(`${name}: board rules not sent yet follow the folder's board when the chat opens again`, async () => {
+    const { provider, store, cleanup } = harness();
+    try {
+      await provider.start();
+      const session = await provider.createSession({ cwd: os.tmpdir() });
+      provider.updateRules?.(session.id, "Move tickets.");
+      await provider.forgetSession(session.id);
+      await provider.loadSession(session.id, os.tmpdir(), { rules: "Use the new board." });
+      await provider.prompt(session.id, "hello");
+      provider.updateRules?.(session.id, "Move tickets.");
+      await provider.forgetSession(session.id);
+      await provider.loadSession(session.id, os.tmpdir(), { rules: "" });
+      await provider.prompt(session.id, "again");
+      provider.updateRules?.(session.id, "");
+      await provider.forgetSession(session.id);
+      await provider.loadSession(session.id, os.tmpdir(), { rules: "Use another board." });
+      await provider.prompt(session.id, "last");
+      const sent = (store().sessions[session.id]?.history ?? []).flatMap((line) =>
+        JSON.stringify(line).includes("user_message_chunk") ? [(line as { params: { update: { content: { text: string } } } }).params.update.content.text] : [],
+      );
+      assert.deepEqual(sent, [
+        "<x-bench-board-rules>\nUse the new board.\n</x-bench-board-rules>\n\nhello",
+        "again",
+        "<x-bench-board-rules>\nUse another board.\n</x-bench-board-rules>\n\nlast",
+      ]);
+    } finally {
+      await cleanup();
+    }
+  });
+}
+
+test("claude: a prompt that fails while its board is removed does not bring the rules back", async () => {
+  const { provider, store, cleanup } = claudeHarness();
+  try {
+    await provider.start();
+    const session = await provider.createSession({ cwd: os.tmpdir() });
+    provider.updateRules?.(session.id, "Move tickets.");
+    const crash = provider.prompt(session.id, "CRASH");
+    provider.updateRules?.(session.id, "");
+    await assert.rejects(crash);
+    await waitFor(() => provider.status === "ready", "the restart");
+    await provider.prompt(session.id, "hello");
+    assert.doesNotMatch(JSON.stringify(store().sessions[session.id]?.history ?? []), /\\n\\nhello/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("claude: a prompt that fails hands its board rules to the next one", async () => {
+  const { provider, store, cleanup } = claudeHarness();
+  try {
+    await provider.start();
+    const session = await provider.createSession({ cwd: os.tmpdir() });
+    provider.updateRules?.(session.id, "Move tickets.");
+    await assert.rejects(provider.prompt(session.id, "CRASH"));
+    await waitFor(() => provider.status === "ready", "the restart");
+    await provider.prompt(session.id, "hello");
+    const sent = JSON.stringify(store().sessions[session.id]?.history ?? []);
+    assert.match(sent, /<x-bench-board-rules>\\nMove tickets.\\n<\/x-bench-board-rules>\\n\\nhello/);
+  } finally {
+    await cleanup();
+  }
+});
 
 test("grok: the host tools' line joins the rules of a new session", async () => {
   const { provider, store, cleanup } = grokHarness({ sessionTools: recordingTools().tools });

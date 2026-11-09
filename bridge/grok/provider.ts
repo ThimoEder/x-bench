@@ -578,7 +578,7 @@ export class GrokProvider extends AcpClient implements Provider {
       }
       let translated;
       try {
-        translated = this.translate(message);
+        translated = this.readNotification(message);
       } catch {
         continue;
       }
@@ -606,7 +606,7 @@ export class GrokProvider extends AcpClient implements Provider {
     for (const message of messages ?? []) {
       let translated;
       try {
-        translated = this.translate(message);
+        translated = this.readNotification(message);
       } catch {
         continue;
       }

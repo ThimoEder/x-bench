@@ -384,7 +384,7 @@ function Patch({ text }: { text: string }) {
   );
 }
 
-function Stat({ additions, deletions }: { additions: unknown; deletions: unknown }) {
+export function Stat({ additions, deletions }: { additions: unknown; deletions: unknown }) {
   return (
     <span className="git-stat">
       {additions ? <span className="add">+{additions as ReactNode}</span> : null}
@@ -393,7 +393,7 @@ function Stat({ additions, deletions }: { additions: unknown; deletions: unknown
   );
 }
 
-function BranchIcon() {
+export function BranchIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="7" cy="6" r="2.2" />

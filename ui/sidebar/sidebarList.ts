@@ -3,6 +3,7 @@ import type { DragEvent, RefObject } from "react";
 import type { ProviderView, SidebarProject, SidebarSession, TicketLink } from "../../server/snapshot.ts";
 import { isRecord } from "../../bridge/lenient.ts";
 import { dockPlaces } from "../dock/dockMemory.ts";
+import type { WorktreeBody, WorktreeGuard } from "../git/WorktreeDiscard.tsx";
 import type { ApiCall } from "../launchToken.ts";
 import type { MenuPlace } from "./FloatingMenu.tsx";
 import type { SidebarProvider } from "./sidebarProvider.ts";
@@ -44,6 +45,7 @@ export interface SidebarList {
   moveChats: (sessionIds: string[], folderId: string | null) => void;
   rename: Rename;
   deleting: Deleting;
+  guardWorktree: WorktreeGuard;
   drop: ChatDrop;
   folding: Folding;
 }
@@ -114,13 +116,16 @@ export function useRename(call: ApiCall | undefined, closeMenu: () => void) {
 
 export type Rename = ReturnType<typeof useRename>;
 
-export function useDeleting(call: ApiCall | undefined, closeMenu: () => void) {
+export function useDeleting(call: ApiCall | undefined, closeMenu: () => void, guardWorktree: WorktreeGuard) {
   const [id, setId] = useState<string | null>(null);
 
   function remove(session: SidebarSession, worktree: boolean) {
+    if (!call) return;
     setId(session.id);
-    call?.("/api/delete", { sessionId: session.id, worktree })
-      .then(() => {
+    const send = (body: WorktreeBody) => call("/api/delete", { sessionId: session.id, ...body });
+    (worktree ? guardWorktree("delete", send, closeMenu) : send({ worktree: false }).then(() => true))
+      .then((gone) => {
+        if (!gone) return;
         dockPlaces.forget(session.id);
         closeMenu();
       })

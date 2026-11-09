@@ -33,6 +33,7 @@ test("a chat whose folder is gone asks git nothing, and its branch chip and line
     openReview: () => {},
     toggleTerminal: () => {},
     openProject: () => {},
+    createBoard: () => {},
   };
   const chat: TranscriptSession = { id: "s", cwd: "/repo", title: "Chat", transcript: [], status: "idle", configOptions: [], queue: [], revision: 1, modeId: "auto" };
   const container = document.createElement("div");

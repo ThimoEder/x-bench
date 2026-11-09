@@ -383,14 +383,14 @@ export class ClaudeProvider extends AdapterClient implements Provider {
     return agent.transport;
   }
 
-  // The user's environment, plus the config folder and binary they chose. Nothing is removed.
-  // Headless Claude Code leaves its todo tools off, and they feed the plan the shelf shows. The user's own value wins.
+  // Headless Claude Code leaves its todo tools off, and they feed the plan the shelf shows.
   private environment(settings = this.settings()): NodeJS.ProcessEnv {
-    return adapterEnvironment({
-      ...(process.env.CLAUDE_CODE_ENABLE_TODO_TOOLS ? {} : { CLAUDE_CODE_ENABLE_TODO_TOOLS: "1" }),
+    const env = adapterEnvironment({
       ...(settings.configDir ? { CLAUDE_CONFIG_DIR: settings.configDir } : {}),
       ...(settings.executable ? { CLAUDE_CODE_EXECUTABLE: settings.executable } : {}),
     });
+    env.CLAUDE_CODE_ENABLE_TODO_TOOLS ||= "1";
+    return env;
   }
 
   // ---- Claude's names for modes and config ----

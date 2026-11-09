@@ -1,6 +1,4 @@
-// Rules the Electron main process applies to URLs, the login shell PATH, the
-// host's output and the files the dev app watches. Kept apart from main.js so
-// they run without Electron.
+// The Electron main process's rules, kept apart from main.js so they run without Electron.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -80,22 +78,42 @@ export function keepAwakeOf(message) {
   return message.on;
 }
 
-// An app opened from Finder gets launchd's short PATH, without Homebrew or
-// the user's own tools, so grok, git, adb and sqlite3 would not be found.
-// The login shell prints its PATH between two markers, because profiles can
-// print their own text around it.
-export const pathMarker = "__X_BENCH_PATH__";
+// Profiles can print their own text, so the environment sits between two markers.
+export const envMarker = "__X_BENCH_ENV__";
 
-export function pathCommand() {
-  return `printf ${pathMarker}; /usr/bin/printenv PATH; printf ${pathMarker}`;
+export function envCommand() {
+  return `printf ${envMarker}; /usr/bin/env -0 2>/dev/null || /usr/bin/env; printf ${envMarker}`;
 }
 
-export function pathFromShell(output) {
-  const start = output.indexOf(pathMarker);
-  const end = output.indexOf(pathMarker, start + pathMarker.length);
+const shellKeeps = ["HOME", "PATH", "SHELL", "USER", "SSH_AUTH_SOCK", "ZDOTDIR"];
+// Keeps oh-my-zsh, compaudit and ssh from stopping to ask.
+const quietShell = { DISABLE_AUTO_UPDATE: "true", ZSH_DISABLE_COMPFIX: "true", SSH_ASKPASS_REQUIRE: "never" };
+const shellOwn = new Set(["PWD", "OLDPWD", "SHLVL", "_", ...Object.keys(quietShell)]);
+
+export function loginShellEnv(env) {
+  return { ...Object.fromEntries(shellKeeps.filter((key) => env[key] !== undefined).map((key) => [key, env[key]])), ...quietShell };
+}
+
+export function envFromShell(output) {
+  const start = output.indexOf(envMarker);
+  const end = output.indexOf(envMarker, start + envMarker.length);
   if (start === -1 || end === -1) return null;
-  const path = output.slice(start + pathMarker.length, end).trim();
-  return path.includes("/") ? path : null;
+  const text = output.slice(start + envMarker.length, end);
+  const env = {};
+  for (const entry of text.split(text.includes("\0") ? "\0" : "\n")) {
+    const equals = entry.indexOf("=");
+    const key = entry.slice(0, equals);
+    if (equals > 0 && !shellOwn.has(key)) env[key] = entry.slice(equals + 1);
+  }
+  return env.PATH?.includes("/") ? env : null;
+}
+
+const certificateKeys = ["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR"];
+
+// NODE_OPTIONS and the rest of the shell environment must stay out of the host.
+export function hostShellEnv(shellEnv, env) {
+  const certificates = certificateKeys.filter((key) => env[key] === undefined && shellEnv?.[key] !== undefined);
+  return { PATH: shellEnv?.PATH ?? env.PATH ?? "", ...Object.fromEntries(certificates.map((key) => [key, shellEnv[key]])) };
 }
 
 // The last lines the host printed, for the error page when it stops.

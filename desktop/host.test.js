@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { branchLabel, devAppEnv, devAppName, groupUpdate, hostNote, hostOrigin, importGraph, keepAwakeOf, labelArg, keepTail, listeningPort, logFile, pathCommand, pathFromShell, pathMarker, route, watchedFolders } from "./host.js";
+import { branchLabel, devAppEnv, devAppName, groupUpdate, hostNote, hostOrigin, importGraph, keepAwakeOf, labelArg, keepTail, listeningPort, logFile, envCommand, envFromShell, envMarker, hostShellEnv, loginShellEnv, route, watchedFolders } from "./host.js";
 
 test("X_BENCH_URL accepts only http://127.0.0.1:<port>", () => {
   assert.equal(hostOrigin("http://127.0.0.1:8834"), "http://127.0.0.1:8834");
@@ -58,12 +58,33 @@ test("only a grok or sak message with a real pid and a running flag counts, neve
   assert.equal(groupUpdate(null), null);
 });
 
-test("the login PATH is read between the markers, ignoring profile output", () => {
-  assert.ok(pathCommand().includes(pathMarker));
-  const output = `Welcome back!\n${pathMarker}/opt/homebrew/bin:/usr/bin:/bin\n${pathMarker}`;
-  assert.equal(pathFromShell(output), "/opt/homebrew/bin:/usr/bin:/bin");
-  assert.equal(pathFromShell("no markers here"), null);
-  assert.equal(pathFromShell(`${pathMarker}${pathMarker}`), null);
+test("the login environment is read between the markers, ignoring profile output and the shell's own variables", () => {
+  assert.ok(envCommand().includes(envMarker));
+  const zero = `Welcome back!\n${envMarker}PATH=/opt/homebrew/bin:/usr/bin\0NOTE=two\nlines\0EMPTY=\0PWD=/Users/me\0SHLVL=2\0_=/usr/bin/env\0DISABLE_AUTO_UPDATE=true\0${envMarker}`;
+  assert.deepEqual(envFromShell(zero), { PATH: "/opt/homebrew/bin:/usr/bin", NOTE: "two\nlines", EMPTY: "" });
+  const lines = `${envMarker}PATH=/usr/bin:/bin\nTOKEN=a=b\nOLDPWD=/tmp\n${envMarker}`;
+  assert.deepEqual(envFromShell(lines), { PATH: "/usr/bin:/bin", TOKEN: "a=b" });
+  assert.equal(envFromShell("no markers here"), null);
+  assert.equal(envFromShell(`${envMarker}HOME=/Users/me\n${envMarker}`), null);
+});
+
+test("the login shell starts with a short environment that keeps profiles from asking", () => {
+  assert.deepEqual(loginShellEnv({ HOME: "/Users/me", PATH: "/usr/bin", SHELL: "/bin/zsh", USER: "me", ZDOTDIR: "/Users/me/.config/zsh", NODE_OPTIONS: "--inspect", TMPDIR: "/tmp" }), {
+    HOME: "/Users/me",
+    PATH: "/usr/bin",
+    SHELL: "/bin/zsh",
+    USER: "me",
+    ZDOTDIR: "/Users/me/.config/zsh",
+    DISABLE_AUTO_UPDATE: "true",
+    ZSH_DISABLE_COMPFIX: "true",
+    SSH_ASKPASS_REQUIRE: "never",
+  });
+});
+
+test("the host gets the login PATH and missing certificate settings, and the agents keep the rest", () => {
+  const shell = { PATH: "/opt/homebrew/bin:/usr/bin", NODE_OPTIONS: "--inspect", CLAUDE_CODE_OAUTH_TOKEN: "secret", NODE_EXTRA_CA_CERTS: "/certs/shell.pem", SSL_CERT_FILE: "/certs/file.pem", ELECTRON_RUN_AS_NODE: "1" };
+  assert.deepEqual(hostShellEnv(shell, { PATH: "/usr/bin", SSL_CERT_FILE: "/certs/app.pem" }), { PATH: "/opt/homebrew/bin:/usr/bin", NODE_EXTRA_CA_CERTS: "/certs/shell.pem" });
+  assert.deepEqual(hostShellEnv(null, { PATH: "/usr/bin" }), { PATH: "/usr/bin" });
 });
 
 test("the output tail keeps the last characters", () => {

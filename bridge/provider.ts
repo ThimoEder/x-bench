@@ -172,6 +172,8 @@ export interface Provider {
   // rules are the board rules of a builder session, for a harness that needs them again on every load.
   loadSession(sessionId: string, cwd: string, options?: { rules?: string }): Promise<SessionState | undefined>;
   forgetSession(sessionId: string): Promise<void>;
+  // New board rules for an open builder session, sent with its next prompt. Empty rules drop ones not sent yet.
+  updateRules?(sessionId: string, rules: string): void;
 
   prompt(sessionId: string, text: unknown, attachments?: unknown): Promise<SessionState | undefined>;
   // A message sent while a turn runs. A provider without a queue sends it once the turn ends.

@@ -1,5 +1,6 @@
 import { memo, useEffect, useEffectEvent, useRef, useState } from "react";
 import type { ProviderUsage, ProviderView, RemoteState, RoutinesView, SidebarProject, SidebarSession, Snapshot, Surface } from "../../server/snapshot.ts";
+import { useWorktreeDiscard } from "../git/WorktreeDiscard.tsx";
 import type { ApiCall } from "../launchToken.ts";
 import { UpdateCard, updateBridge, useWaitingUpdate } from "../updater/UpdateCard.tsx";
 import { visibleSessions } from "./archiveView.ts";
@@ -85,7 +86,8 @@ export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, on
   const builderWaiting = chatting && (snapshot.attention ?? []).some((id) => !runIds.has(id) && !chats.some((session) => session.id === id));
   const folding = useFolding(call);
   const rename = useRename(call, closeMenu);
-  const deleting = useDeleting(call, closeMenu);
+  const discard = useWorktreeDiscard();
+  const deleting = useDeleting(call, closeMenu, discard.guard);
   const [providerShown] = useSidebarProvider();
 
   function moveChats(sessionIds: string[], folderId: string | null) {
@@ -136,6 +138,7 @@ export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, on
     moveChats,
     rename,
     deleting,
+    guardWorktree: discard.guard,
     drop,
     folding,
   };
@@ -150,6 +153,7 @@ export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, on
       aria-hidden={open ? undefined : true}
     >
       {dragging.drag ? <DragGhost drag={dragging.drag} /> : null}
+      {discard.dialog}
       <div className="sidebar-inner">
         <Brand surface={surface} onSurface={onSurface} phone={phone} onCollapse={onCollapse} />
         {onOpenRoutines ? <RoutinesButton routines={snapshot.routines} runIds={runIds} unread={unread} open={Boolean(routinesOpen)} onOpen={onOpenRoutines} /> : null}

@@ -7,6 +7,7 @@ import { app, ipcMain, session, WebContentsView } from "electron";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { tokenPath } from "../host.js";
+import { appPageUrl } from "../appPages.js";
 import { badgeBounds, chromeUserAgent, fitScale, paneOwner, paneUrl, parkedBounds, sameHostOrigin, viewBounds, viewportLabel } from "./browserRules.js";
 
 const partition = "persist:x-bench-browser";
@@ -32,7 +33,6 @@ const openTimeout = 20_000;
 const firstSize = { width: 1280, height: 800 };
 // A tab off screen stays awake this long after an agent call on it.
 const wakeMs = 1_000;
-const badgePage = fileURLToPath(new URL("viewportBadge.html", import.meta.url));
 const badgePreload = fileURLToPath(new URL("viewportBadge.cjs", import.meta.url));
 
 // origin is the host the app talks to. X Bench Dev can move to another port, so relink takes the new one.
@@ -123,7 +123,7 @@ export function createBrowserPane({ origin: firstOrigin, home }) {
     contents.on("will-navigate", (event) => event.preventDefault());
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("did-finish-load", placeBadge);
-    contents.loadFile(badgePage).catch(() => {});
+    contents.loadURL(appPageUrl("viewportBadge.html")).catch(() => {});
     return view;
   }
 

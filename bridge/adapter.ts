@@ -40,6 +40,7 @@ const AsyncTask = fields({
     state: maybe(z.string()),
     summary: maybe(z.string()),
     toolCallId: maybe(z.string()),
+    canStop: maybe(z.boolean()),
   }),
 });
 
@@ -177,12 +178,14 @@ export abstract class AdapterClient extends AcpClient {
     const known = list.get(update.asyncTaskId);
     const label = update.description || update.name || known?.label || "Background task";
     const toolCallId = update.toolCallId || known?.toolCallId;
+    const canStop = update.canStop ?? known?.canStop;
     const task: BackgroundTask = {
       id: update.asyncTaskId,
       kind: update.taskType || known?.kind || "",
       status: update.state || known?.status || "running",
       label: label.length > 88 ? `${label.slice(0, 87)}…` : label,
       ...(toolCallId ? { toolCallId } : {}),
+      ...(canStop === false ? { canStop } : {}),
     };
     list.set(update.asyncTaskId, task);
     this.tasks.set(sessionId, list);
@@ -302,6 +305,13 @@ export function stderrTail(stderr: string, skip?: RegExp) {
   return last ? `: ${last.slice(0, 300)}` : "";
 }
 
+let shellEnvironment: NodeJS.ProcessEnv = {};
+
+export function setShellEnvironment(env: NodeJS.ProcessEnv) {
+  shellEnvironment = env;
+}
+
 export function adapterEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  return { ...process.env, ...extra };
+  const own = Object.entries(process.env).filter(([key]) => key === "PATH" || key === "HOME" || key.startsWith("X_BENCH_"));
+  return { ...process.env, ...shellEnvironment, ...Object.fromEntries(own), ...extra };
 }

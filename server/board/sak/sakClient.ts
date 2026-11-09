@@ -96,10 +96,10 @@ export function writeConnection(
 ): SakConnection {
   const baseUrl = loopbackBase(connection?.baseUrl);
   if (!baseUrl) {
-    throw sakError(400, "SAK must be on this machine");
+    throw sakError(400, "The local board must be on this machine");
   }
   const token = String(connection?.token || "").trim();
-  if (!token || /[\r\n]/.test(token)) throw sakError(400, "Add a SAK token");
+  if (!token || /[\r\n]/.test(token)) throw sakError(400, "Add a token for the local board");
   const enabled = connection?.enabled === false ? false : true;
   const database = databasePath(connection?.database);
   const website = storedPath(connection?.website);
@@ -117,9 +117,9 @@ export function saveConnection(
 ): void {
   const current = readConnection(file);
   const baseUrl = body.baseUrl ? loopbackBase(body.baseUrl) : current.baseUrl;
-  if (!baseUrl) throw sakError(400, "SAK must be on this machine");
+  if (!baseUrl) throw sakError(400, "The local board must be on this machine");
   const token = typeof body.token === "string" && body.token.trim() ? body.token.trim() : current.token;
-  if (!token) throw sakError(400, "Add a SAK token");
+  if (!token) throw sakError(400, "Add a token for the local board");
   const enabled = typeof body.enabled === "boolean" ? body.enabled : true;
   // Setup does not send the database path. A save must not drop the file SAK is started with.
   const database = body.database !== undefined ? databasePath(body.database) : current.database;
@@ -139,8 +139,8 @@ export async function sakCall<T>(
   read: (response: BoardFetchResponse) => Promise<T>,
 ): Promise<T> {
   const base = loopbackBase(connection.baseUrl);
-  if (!base) throw sakError(400, "SAK must be on this machine");
-  if (!connection.token) throw sakError(400, "Add a SAK token");
+  if (!base) throw sakError(400, "The local board must be on this machine");
+  if (!connection.token) throw sakError(400, "Add a token for the local board");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -162,35 +162,35 @@ export async function sakCall<T>(
     }
     return await read(response);
   } catch (error) {
-    if (isRecord(error) && error.name === "AbortError") throw sakError(504, "SAK did not answer");
+    if (isRecord(error) && error.name === "AbortError") throw sakError(504, "The local board did not answer");
     if (isRecord(error) && error.status) throw error;
-    throw sakError(502, "SAK is not reachable");
+    throw sakError(502, "The local board is not reachable");
   } finally {
     clearTimeout(timer);
   }
 }
 
 const refusals = new Map([
-  ["unsupported_media_type", "SAK takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips"],
-  ["too_large", "SAK takes pictures up to 20 MiB and clips up to 100 MiB"],
+  ["unsupported_media_type", "The local board takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips"],
+  ["too_large", "The local board takes pictures up to 20 MiB and clips up to 100 MiB"],
   ["relation_exists", "These tickets already have that relation"],
   ["parent_exists", "This ticket already has a parent"],
   ["cycle", "That would make a loop"],
 ]);
 
 function safeSakMessage(status: number, code: string | null): string {
-  if (code === "unauthorized" || status === 401) return "The SAK token was refused";
+  if (code === "unauthorized" || status === 401) return "The local board refused its token";
   const refusal = code ? refusals.get(code) : undefined;
   if (refusal) return refusal;
   if (status === 409) return "Someone else edited this ticket";
-  if (status === 504) return "SAK did not answer";
-  if (status === 502) return "SAK is not reachable";
-  return code && !code.includes("_") ? code : "SAK refused the request";
+  if (status === 504) return "The local board did not answer";
+  if (status === 502) return "The local board is not reachable";
+  return code && !code.includes("_") ? code : "The local board refused the request";
 }
 
 export function enabledConnection(file: string): SakConnection {
   const stored = readConnection(file);
-  if (!stored.enabled) throw sakError(400, "Enable SAK in Setup");
+  if (!stored.enabled) throw sakError(400, "Enable the local board in Setup");
   return stored;
 }
 
@@ -240,7 +240,7 @@ function databasePath(value: unknown): string {
   const text = String(value).trim();
   if (!text) return "";
   if (!path.isAbsolute(text) || text.includes("\0") || /[\r\n]/.test(text)) {
-    throw sakError(400, "The SAK database must be a file on this machine");
+    throw sakError(400, "The local board's database must be a file on this machine");
   }
   return text;
 }

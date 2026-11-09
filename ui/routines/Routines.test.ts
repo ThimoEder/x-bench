@@ -10,7 +10,7 @@ import { routineFolder, routinesTarget } from "./routineLink.ts";
 // react-dom checks for a DOM when it loads, so it comes in after installDom.
 const dom = installDom();
 const { createRoot } = await import("react-dom/client");
-const { Routines, routineStatus } = await import("./Routines.tsx");
+const { groupSummary, routineGroups, Routines, routineStatus } = await import("./Routines.tsx");
 
 after(async () => {
   await dom.happyDOM.abort();
@@ -175,7 +175,7 @@ test("a routine's row runs it, pauses it, and opens a run's chat", async () => {
   const run = { id: "a", trigger: "manual" as const, startedAt: "2026-10-03T07:00:00.000Z", state: "waiting" as const, sessionId: "s1", cwd: "/wt", chat: true };
   const { container, calls, opened, root } = await render(view([routine({ runs: [run] })], { here: false, takesPart: true, port: 8797 }));
   assert.equal(container.querySelector("[data-testid='routines-scheduler']")?.textContent, "Routines run on schedule in X Bench on port 8797. Run now works here.");
-  assert.match(container.querySelector(".routine-meta")?.textContent ?? "", /^Weekdays at 09:00 · repo · worktree · Grok 4\.7 · Always approve$/);
+  assert.match(container.querySelector(".routine-meta")?.textContent ?? "", /^Weekdays at 09:00 · worktree · Grok 4\.7 · Always approve$/);
   await act(async () => click(button(container, "Run now")));
   await act(async () => click(button(container, "Pause Dependency check")));
   assert.deepEqual(calls, [["/api/routines/run", { id: "r1" }], ["/api/routines/update", { id: "r1", enabled: false }]]);
@@ -326,5 +326,35 @@ test("a run's row says its worktree was removed or why it stays, and deleting it
   assert.equal(container.querySelector(".routine-runs .routine-menu")?.textContent, "Delete this chat", "a removed worktree is not offered");
   await act(async () => click(button(container, "Delete this chat")));
   assert.deepEqual(calls.at(-1), ["/api/delete", { sessionId: "s2", worktree: false }]);
+  await act(async () => root.unmount());
+});
+
+test("routines group by project in the sidebar's order, with plain chats last", async () => {
+  const now = new Date("2026-10-03T14:00:00");
+  const sidebar = [{ cwd: "/b", name: "b", sessions: [] }, { cwd: "/repo", name: "repo", sessions: [] }];
+  const chat = routine({ id: "c", chat: true, cwd: "/home" });
+  const groups = routineGroups([chat, routine({ id: "1" }), routine({ id: "2", cwd: "/gone" }), routine({ id: "3", cwd: "/b" }), routine({ id: "4" })], sidebar);
+  assert.deepEqual(groups.map((group) => [group.name, group.routines.map((item) => item.id)]), [["b", ["3"]], ["repo", ["1", "4"]], ["gone", ["2"]], ["Chat", ["c"]]]);
+  const run = { id: "a", trigger: "schedule" as const, startedAt: now.toISOString(), chat: false };
+  const waiting = { ...run, state: "waiting" as const };
+  assert.deepEqual(groupSummary([routine({ runs: [{ ...run, state: "error" }] }), routine({ runs: [waiting] })], now), { text: "1 waiting for you", tone: "is-waiting", mark: waiting });
+  assert.equal(groupSummary([routine({ nextRunAt: new Date("2026-10-05T09:00:00").toISOString() }), routine({ nextRunAt: new Date("2026-10-04T09:00:00").toISOString() })], now).text, "Next: Tomorrow 09:00");
+  assert.equal(groupSummary([routine({ enabled: false, nextRunAt: null })], now).text, "All paused");
+  const working = { ...run, id: "w", state: "working" as const };
+  assert.equal(groupSummary([routine({ runs: [working, waiting] })], now).text, "1 waiting for you", "a newer working run keeps an older waiting one in view");
+  assert.equal(groupSummary([routine({ runs: [waiting, { ...waiting, id: "b" }] })], now).text, "2 waiting for you");
+
+  const { container, root } = await render(view([routine(), routine({ id: "c", name: "Brief", chat: true })]));
+  assert.deepEqual([...container.querySelectorAll(".routine-group-name")].map((item) => item.textContent), ["repo", "Chat"]);
+  await act(async () => click(container.querySelector(".routine-group-toggle") as HTMLButtonElement));
+  assert.deepEqual([...container.querySelectorAll(".routine-name")].map((item) => item.textContent), ["Brief"], "a folded project hides its routines");
+  await act(async () => click(button(container, "New routine in repo")));
+  await act(async () => typeInto(container.querySelector("[data-testid='routine-name']") as HTMLInputElement, "Check"));
+  await act(async () => typeInto(container.querySelector("[data-testid='routine-prompt']") as HTMLTextAreaElement, "Look."));
+  await act(async () => {
+    click(button(container, "Save"));
+    await wait(0);
+  });
+  assert.equal(container.querySelector(".routine-group-toggle")?.getAttribute("aria-expanded"), "true", "saving into a folded project unfolds it");
   await act(async () => root.unmount());
 });

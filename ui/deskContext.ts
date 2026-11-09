@@ -13,6 +13,7 @@ export interface Desk {
   openReview: (sessionId: string) => void;
   toggleTerminal: (sessionId: string) => void;
   openProject: (cwd: string, taskId?: TicketLink["taskId"] | null) => void;
+  createBoard: (project: Pick<SidebarProject, "cwd" | "name">) => void;
 }
 
 export const DeskContext = createContext<Desk | null>(null);

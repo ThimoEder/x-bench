@@ -12,7 +12,6 @@ import {
   messageOf,
   nodeOf,
   sameId,
-  sourceName,
   type BoardCall,
   type BoardLabel,
   type BoardView,
@@ -37,7 +36,7 @@ export function LabelSheet({ board, cwd, call, taskId, onAdded, onDeleted, onClo
   const onTicket = taskId !== null && taskId !== undefined;
   const adds = onTicket || canDo(board, "standaloneLabels");
   const copy = [
-    `Every label on this ${sourceName(board)} board.`,
+    "Every label on this board.",
     adds && colors ? "Pick a new label's color as you add it." : "",
     onTicket ? "A new label also goes on the open ticket." : "",
   ].filter(Boolean).join(" ");

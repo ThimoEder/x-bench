@@ -4,6 +4,7 @@ import { describeSchedule, shortWhen } from "../../server/routines/routineSchedu
 import { KeepAwakeSwitch } from "../settings/HostSettings.tsx";
 import { RoutineEditor } from "./RoutineEditor.tsx";
 import { draftOf, newDraft, STARTERS, type RoutineDraft, type RoutineSeed } from "./routineForm.ts";
+import { useWorktreeDiscard, type WorktreeBody } from "../git/WorktreeDiscard.tsx";
 import type { ApiCall } from "../launchToken.ts";
 import { leaveRef } from "../leaveRef.ts";
 import { useCloseOutside } from "../useCloseOutside.ts";
@@ -58,6 +59,51 @@ function folderName(routine: RoutineView, projects: readonly SidebarProject[]): 
   return projects.find((project) => project.cwd === routine.cwd)?.name || routine.cwd.split("/").filter(Boolean).at(-1) || routine.cwd;
 }
 
+export interface RoutineGroup {
+  cwd: string;
+  name: string;
+  routines: RoutineView[];
+}
+
+export function routineGroups(list: readonly RoutineView[], projects: readonly SidebarProject[]): RoutineGroup[] {
+  const groups = new Map<string, RoutineGroup>();
+  for (const routine of list) {
+    const cwd = routine.chat ? "" : routine.cwd;
+    const group = groups.get(cwd) ?? { cwd, name: folderName(routine, projects), routines: [] };
+    group.routines.push(routine);
+    groups.set(cwd, group);
+  }
+  const rank = (cwd: string) => {
+    if (!cwd) return Infinity;
+    const index = projects.findIndex((project) => project.cwd === cwd);
+    return index < 0 ? projects.length : index;
+  };
+  return [...groups.values()].sort((a, b) => rank(a.cwd) - rank(b.cwd));
+}
+
+const PRESSING: { states: RunState[]; label: string; tone: string }[] = [
+  { states: ["waiting"], label: "waiting for you", tone: "is-waiting" },
+  { states: ["error", "failed"], label: "ended with an error", tone: "is-failed" },
+  { states: ["working"], label: "working", tone: "" },
+];
+
+function currentRuns(routine: RoutineView): RoutineRunView[] {
+  const active = routine.runs.filter((run) => run.state === "working" || run.state === "waiting");
+  return active.length ? active : routine.runs.slice(0, 1);
+}
+
+export function groupSummary(routines: readonly RoutineView[], now = new Date()): { text: string; tone: string; mark?: RoutineRunView } {
+  const current = routines.flatMap(currentRuns);
+  for (const { states, label, tone } of PRESSING) {
+    const runs = current.filter((run) => states.includes(run.state));
+    if (runs[0]) return { text: `${runs.length} ${label}`, tone, mark: runs[0] };
+  }
+  const next = routines.flatMap((routine) => (routine.enabled && routine.nextRunAt ? [routine.nextRunAt] : [])).sort()[0];
+  if (next) return { text: `Next: ${shortWhen(new Date(next), now)}`, tone: "" };
+  if (routines.every((routine) => !routine.enabled)) return { text: "All paused", tone: "" };
+  return { text: "", tone: "" };
+}
+
 function modelName(routine: RoutineView, catalog: ComposerCatalog, providers: readonly ProviderView[]): string {
   const model = catalog.models.find((item) => item.provider === routine.provider && item.model === routine.model);
   if (model) return model.name;
@@ -100,11 +146,50 @@ function RunMark({ run, unread }: { run: RoutineRunView; unread: readonly string
   );
 }
 
+function ChevronIcon() {
+  return (
+    <svg className="routine-group-chevron" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 4.5 6 7.5l3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+      <path d="M7 2.5v9M2.5 7h9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function ArrowIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
       <path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+function GroupHead({ group, shut, now, unread, onToggle, onCreate }: { group: RoutineGroup; shut: boolean; now: Date; unread: readonly string[]; onToggle: () => void; onCreate: () => void }) {
+  const summary = groupSummary(group.routines, now);
+  return (
+    <div className="routine-group-head">
+      <button type="button" className={shut ? "routine-group-toggle is-closed" : "routine-group-toggle"} aria-expanded={!shut} onClick={onToggle}>
+        <ChevronIcon />
+        <span className="routine-group-name">{group.name}</span>
+        <span className="routine-group-count">{group.routines.length}</span>
+        {group.cwd ? <span className="routine-group-path">{group.cwd}</span> : null}
+        {summary.text ? (
+          <span className={`routine-group-summary ${summary.tone}`}>
+            {summary.mark ? <RunMark run={summary.mark} unread={unread} /> : null}
+            <span>{summary.text}</span>
+          </span>
+        ) : null}
+      </button>
+      <button type="button" className="icon" aria-label={`New routine in ${group.name}`} title={`New routine in ${group.name}`} onClick={onCreate}>
+        <PlusIcon />
+      </button>
+    </div>
   );
 }
 
@@ -115,10 +200,12 @@ function RunRow({ run, now, unread, call, onOpenRun }: { run: RoutineRunView; no
   useCloseOutside(menu, wrap, () => setMenu(false));
   const when = shortWhen(new Date(run.startedAt), now);
   const worktreeNote = run.worktreeRemoved ? "Worktree removed" : run.worktreeKept;
+  const discard = useWorktreeDiscard();
 
   function remove(worktree: boolean) {
     setMenu(false);
-    call("/api/delete", { sessionId: run.sessionId, worktree }).catch(() => {});
+    const send = (body: WorktreeBody) => call("/api/delete", { sessionId: run.sessionId, ...body });
+    (worktree ? discard.guard("delete", send) : send({ worktree: false })).catch(() => {});
   }
 
   const line = (
@@ -177,6 +264,126 @@ function RunRow({ run, now, unread, call, onOpenRun }: { run: RoutineRunView; no
           ) : null}
         </span>
       ) : null}
+      {discard.dialog}
+    </li>
+  );
+}
+
+interface RoutineRowProps extends Pick<RoutinesProps, "catalog" | "providers" | "call" | "onOpenRun"> {
+  routine: RoutineView;
+  open: boolean;
+  running: boolean;
+  now: Date;
+  unread: readonly string[];
+  onSelect: () => void;
+  onRun: () => void;
+  onEdit: (draft: RoutineDraft) => void;
+}
+
+function RoutineRow({ routine, open, running, now, unread, catalog, providers, call, onOpenRun, onSelect, onRun, onEdit }: RoutineRowProps) {
+  const [menu, setMenu] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const wrap = useRef<HTMLSpanElement>(null);
+  useCloseOutside(menu, wrap, () => setMenu(false));
+  const status = routineStatus(routine, now);
+  const meta = [describeSchedule(routine.schedule), routine.chat || routine.start === "folder" ? "" : "worktree", modelName(routine, catalog, providers), modeName(routine, providers)]
+    .filter(Boolean)
+    .join(" · ");
+
+  function remove() {
+    if (!confirm) {
+      setConfirm(true);
+      return;
+    }
+    setMenu(false);
+    call("/api/routines/delete", { id: routine.id }).catch(() => {});
+  }
+
+  return (
+    <li className={["routine-row", open ? "is-open" : "", routine.enabled ? "" : "is-paused"].filter(Boolean).join(" ")}>
+      <div className="routine-line">
+        <button type="button" className="routine-main" aria-expanded={open} onClick={onSelect}>
+          <span className="routine-name">{routine.name}</span>
+          <span className="routine-meta">{meta}</span>
+          {status.text ? (
+            <span className={`routine-status ${status.tone}`}>
+              {status.mark ? <RunMark run={status.mark} unread={unread} /> : null}
+              <span>{status.text}</span>
+            </span>
+          ) : null}
+        </button>
+        <div className="routine-actions">
+          <button type="button" className="text-button" data-testid="routine-run" disabled={running} onClick={onRun}>
+            {running ? "Starting…" : "Run now"}
+          </button>
+          <button
+            type="button"
+            role="switch"
+            className={routine.enabled ? "routine-switch-toggle is-on" : "routine-switch-toggle"}
+            aria-checked={routine.enabled}
+            aria-label={routine.enabled ? `Pause ${routine.name}` : `Turn ${routine.name} on`}
+            onClick={() => call("/api/routines/update", { id: routine.id, enabled: !routine.enabled }).catch(() => {})}
+          >
+            <span aria-hidden="true" />
+          </button>
+          <span ref={wrap} className="routine-menu-wrap">
+            <button
+              type="button"
+              className="icon routine-more"
+              aria-label={`Actions for ${routine.name}`}
+              aria-expanded={menu}
+              onClick={() => {
+                setConfirm(false);
+                setMenu(!menu);
+              }}
+            >
+              …
+            </button>
+            {menu ? (
+              <div ref={leaveRef} className="session-menu routine-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(false);
+                    onEdit(draftOf(routine, catalog));
+                  }}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenu(false);
+                    const { id: _id, ...copy } = draftOf(routine, catalog);
+                    onEdit({ ...copy, name: `${routine.name} copy`.slice(0, 120) });
+                  }}
+                >
+                  Duplicate
+                </button>
+                <button type="button" role="menuitem" className="danger" onClick={remove}>
+                  {confirm ? "Delete this routine" : "Delete"}
+                </button>
+              </div>
+            ) : null}
+          </span>
+        </div>
+      </div>
+      {open ? (
+        <div className="routine-runs">
+          <p className="routine-prompt-text">{routine.prompt}</p>
+          {routine.runs.length ? (
+            <ul>
+              {routine.runs.map((run) => (
+                <RunRow key={run.id} run={run} now={now} unread={unread} call={call} onOpenRun={onOpenRun} />
+              ))}
+            </ul>
+          ) : (
+            <p className="routine-runs-empty">No runs yet.</p>
+          )}
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -184,9 +391,8 @@ function RunRow({ run, now, unread, call, onOpenRun }: { run: RoutineRunView; no
 export function Routines({ routines, app, projects, catalog, providers, platform, call, unread, onOpenRun, seed, onSeedApplied }: RoutinesProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<RoutineDraft | null>(null);
-  const [menuId, setMenuId] = useState<string | null>(null);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
   const [running, setRunning] = useState<string | null>(null);
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const list = routines.list;
   const now = new Date();
 
@@ -198,20 +404,8 @@ export function Routines({ routines, app, projects, catalog, providers, platform
     if (seed) applySeed(seed);
   }, [seed]);
 
-  useEffect(() => {
-    if (!menuId) return undefined;
-    function close(event: PointerEvent) {
-      if (!(event.target instanceof Element) || !event.target.closest(".routine-menu-wrap")) {
-        setMenuId(null);
-        setConfirmId(null);
-      }
-    }
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [menuId]);
-
-  function create(starter?: (typeof STARTERS)[number]) {
-    const draft = newDraft({ projects, catalog, providers });
+  function create(starter?: (typeof STARTERS)[number], group?: RoutineGroup) {
+    const draft = newDraft({ seed: group ? (group.cwd ? { cwd: group.cwd } : { chat: true }) : null, projects, catalog, providers });
     setEditing(starter ? { ...draft, name: starter.name, prompt: starter.prompt, preset: starter.preset, at: starter.at } : draft);
   }
 
@@ -227,18 +421,13 @@ export function Routines({ routines, app, projects, catalog, providers, platform
     }
   }
 
-  function setEnabled(routine: RoutineView, enabled: boolean) {
-    call("/api/routines/update", { id: routine.id, enabled }).catch(() => {});
-  }
-
-  function remove(routine: RoutineView) {
-    if (confirmId !== routine.id) {
-      setConfirmId(routine.id);
-      return;
-    }
-    setMenuId(null);
-    setConfirmId(null);
-    call("/api/routines/delete", { id: routine.id }).catch(() => {});
+  function setGroupOpen(cwd: string, open: boolean) {
+    setClosed((current) => {
+      const next = new Set(current);
+      if (open) next.delete(cwd);
+      else next.add(cwd);
+      return next;
+    });
   }
 
   const scheduler = routines.scheduler;
@@ -282,102 +471,32 @@ export function Routines({ routines, app, projects, catalog, providers, platform
             </button>
           </section>
         ) : (
-          <ul className="routine-list">
-            {list.map((routine) => {
-              const open = selected === routine.id;
-              const status = routineStatus(routine, now);
-              const meta = [describeSchedule(routine.schedule), folderName(routine, projects) + (routine.chat || routine.start === "folder" ? "" : " · worktree"), modelName(routine, catalog, providers), modeName(routine, providers)]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <li key={routine.id} className={["routine-row", open ? "is-open" : "", routine.enabled ? "" : "is-paused"].filter(Boolean).join(" ")}>
-                  <div className="routine-line">
-                    <button type="button" className="routine-main" aria-expanded={open} onClick={() => setSelected(open ? null : routine.id)}>
-                      <span className="routine-name">{routine.name}</span>
-                      <span className="routine-meta">{meta}</span>
-                      {status.text ? (
-                        <span className={`routine-status ${status.tone}`}>
-                          {status.mark ? <RunMark run={status.mark} unread={unread} /> : null}
-                          <span>{status.text}</span>
-                        </span>
-                      ) : null}
-                    </button>
-                    <div className="routine-actions">
-                      <button type="button" className="text-button" data-testid="routine-run" disabled={running === routine.id} onClick={() => runNow(routine)}>
-                        {running === routine.id ? "Starting…" : "Run now"}
-                      </button>
-                      <button
-                        type="button"
-                        role="switch"
-                        className={routine.enabled ? "routine-switch-toggle is-on" : "routine-switch-toggle"}
-                        aria-checked={routine.enabled}
-                        aria-label={routine.enabled ? `Pause ${routine.name}` : `Turn ${routine.name} on`}
-                        onClick={() => setEnabled(routine, !routine.enabled)}
-                      >
-                        <span aria-hidden="true" />
-                      </button>
-                      <span className="routine-menu-wrap">
-                        <button
-                          type="button"
-                          className="icon routine-more"
-                          aria-label={`Actions for ${routine.name}`}
-                          aria-expanded={menuId === routine.id}
-                          onClick={() => {
-                            setConfirmId(null);
-                            setMenuId((current) => (current === routine.id ? null : routine.id));
-                          }}
-                        >
-                          …
-                        </button>
-                        {menuId === routine.id ? (
-                          <div ref={leaveRef} className="session-menu routine-menu" role="menu">
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setMenuId(null);
-                                setEditing(draftOf(routine, catalog));
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setMenuId(null);
-                                const { id: _id, ...copy } = draftOf(routine, catalog);
-                                setEditing({ ...copy, name: `${routine.name} copy`.slice(0, 120) });
-                              }}
-                            >
-                              Duplicate
-                            </button>
-                            <button type="button" role="menuitem" className="danger" onClick={() => remove(routine)}>
-                              {confirmId === routine.id ? "Delete this routine" : "Delete"}
-                            </button>
-                          </div>
-                        ) : null}
-                      </span>
-                    </div>
-                  </div>
-                  {open ? (
-                    <div className="routine-runs">
-                      <p className="routine-prompt-text">{routine.prompt}</p>
-                      {routine.runs.length ? (
-                        <ul>
-                          {routine.runs.map((run) => (
-                            <RunRow key={run.id} run={run} now={now} unread={unread} call={call} onOpenRun={onOpenRun} />
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="routine-runs-empty">No runs yet.</p>
-                      )}
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          routineGroups(list, projects).map((group) => (
+            <section key={group.cwd || "chat"} className="routine-group" aria-label={group.name}>
+              <GroupHead group={group} shut={closed.has(group.cwd)} now={now} unread={unread} onToggle={() => setGroupOpen(group.cwd, closed.has(group.cwd))} onCreate={() => create(undefined, group)} />
+              {closed.has(group.cwd) ? null : (
+                <ul className="routine-list">
+                  {group.routines.map((routine) => (
+                    <RoutineRow
+                      key={routine.id}
+                      routine={routine}
+                      open={selected === routine.id}
+                      running={running === routine.id}
+                      now={now}
+                      unread={unread}
+                      catalog={catalog}
+                      providers={providers}
+                      call={call}
+                      onOpenRun={onOpenRun}
+                      onSelect={() => setSelected(selected === routine.id ? null : routine.id)}
+                      onRun={() => runNow(routine)}
+                      onEdit={setEditing}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          ))
         )}
         {app.desktop ? (
           <section className="routines-settings" aria-label="Keep awake">
@@ -396,8 +515,9 @@ export function Routines({ routines, app, projects, catalog, providers, platform
           desktop={routines.desktop}
           call={call}
           onClose={() => setEditing(null)}
-          onSaved={(id) => {
+          onSaved={(id, saved) => {
             setEditing(null);
+            setGroupOpen(saved.chat ? "" : saved.cwd, true);
             if (id) setSelected(id);
           }}
         />

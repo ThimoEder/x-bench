@@ -8,6 +8,21 @@ import { emptySession, reduce, waitsOnPerson, type DisplayAttachment, type Pendi
 import { composePrompt, withThumbnails, type ComposedPrompt, type PromptBlock } from "./attachments.ts";
 import { acpFacts, type ToolCall, type ToolFacts } from "./tools.ts";
 import { formContent, formFields } from "./elicitation.ts";
+
+// Board rules sent inside a prompt sit in this tag, also in older sessions' history. The transcript and the title leave them out.
+const RULES_TAG = "x-bench-board-rules";
+const RULES_BLOCK = new RegExp(`<${RULES_TAG}>[\\s\\S]*?</${RULES_TAG}>\\s*`, "g");
+
+export function withoutRules(text: string) {
+  return text.replace(RULES_BLOCK, "");
+}
+
+function withRules(rules: string, blocks: PromptBlock[]): PromptBlock[] {
+  if (!rules) return blocks;
+  const tagged = `<${RULES_TAG}>\n${rules}\n</${RULES_TAG}>\n\n`;
+  const [head, ...tail] = blocks;
+  return head?.type === "text" ? [{ ...head, text: tagged + head.text }, ...tail] : [{ type: "text", text: tagged }, ...blocks];
+}
 import {
   ElicitationParams,
   PromptResult,
@@ -237,6 +252,14 @@ export class AcpClient {
     return [own, tools?.instructions ?? ""].filter(Boolean).join("\n\n");
   }
 
+  // Harnesses keep a session's system prompt from its start, also on a load, so new board rules wait here for the next prompt, also through closing the chat.
+  private boardRules = new Map<string, string>();
+
+  // Empty rules stay as an entry, so a failed prompt does not bring back the ones they dropped.
+  updateRules(sessionId: string, rules: string) {
+    if (this.sessionMap.has(sessionId)) this.boardRules.set(sessionId, rules);
+  }
+
   // The blocks session/prompt sends, for a harness that takes something along with the person's prompt.
   protected promptBlocks(_sessionId: string, blocks: PromptBlock[]): PromptBlock[] {
     return blocks;
@@ -437,6 +460,8 @@ export class AcpClient {
     this.assertReady();
     const rules = typeof options.rules === "string" ? options.rules.trim() : "";
     if (rules) this.sessionRules.set(sessionId, rules);
+    // Rules not sent yet follow the folder's board as it is when the chat opens again.
+    if (typeof options.rules === "string" && this.boardRules.has(sessionId)) this.boardRules.set(sessionId, rules);
     if (!this.warm.has(sessionId)) {
       const job: Promise<SessionState | undefined> = this.inflightLoads.get(sessionId) ?? this.reload(sessionId, cwd).finally(() => {
         if (this.inflightLoads.get(sessionId) === job) this.inflightLoads.delete(sessionId);
@@ -553,6 +578,10 @@ export class AcpClient {
 
   private async sendPrompt(sessionId: string, composed: ComposedPrompt, queued = false) {
     const epoch = this.epoch;
+    // A queued message can still be edited or removed, and a harness reads a slash command only at the start of the text,
+    // so the rules wait for a plain prompt that starts a turn.
+    const rules = queued || composed.text.trimStart().startsWith("/") ? "" : (this.boardRules.get(sessionId) ?? "");
+    if (rules) this.boardRules.delete(sessionId);
     const ticket: Ticket = {
       id: null,
       text: composed.text,
@@ -568,13 +597,14 @@ export class AcpClient {
       const result = PromptResult.parse(
         await this.rpc.request(
           "session/prompt",
-          { sessionId, prompt: this.promptBlocks(sessionId, composed.blocks) },
+          { sessionId, prompt: withRules(rules, this.promptBlocks(sessionId, composed.blocks)) },
           this.options.promptTimeoutMs ?? 0,
         ),
       );
       if (this.epoch === epoch) this.completeTicket(sessionId, ticket, result.stopReason ?? null);
       return this.sessionMap.get(sessionId);
     } catch (error) {
+      if (rules && !this.boardRules.has(sessionId)) this.boardRules.set(sessionId, rules);
       // A dropped connection bumps the epoch and session/load rebuilds the transcript.
       const explained = this.explainError(error);
       if (this.epoch === epoch) this.completeTicket(sessionId, ticket, "error", explained);
@@ -894,13 +924,30 @@ export class AcpClient {
 
   // ---- Messages from the agent ----
 
+  // A notification as reducer events, with the board rules tag left out of what the person sees.
+  protected readNotification(message: unknown): Translated | null {
+    const translated = this.translate(message);
+    const shown = translated?.event;
+    if (shown?.type === "chunk" && shown.role === "user") {
+      const text = withoutRules(shown.text);
+      if (!text.trim() && shown.text.trim() && !shown.images?.length) return null;
+      shown.text = text;
+    }
+    // An agent that keeps its own queue reports each prompt's text as it got it.
+    if (shown?.type === "queue") {
+      shown.entries = shown.entries.map((entry) => ({ ...entry, text: withoutRules(entry.text) }));
+      if (shown.runningText) shown.runningText = withoutRules(shown.runningText);
+    }
+    return translated;
+  }
+
   private onNotification(message: RpcNotification) {
     if (message.method === "$/cancel_request") {
       this.withdrawRequest(message.params);
       return;
     }
     if (this.handleNotification(message)) return;
-    const translated = this.translate(message);
+    const translated = this.readNotification(message);
     if (!translated) return;
     if (translated.event.type === "catalog") {
       this.applyCatalog(translated.event.upserted);

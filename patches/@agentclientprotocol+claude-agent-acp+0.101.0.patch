@@ -1,8 +1,8 @@
 diff --git a/node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js b/node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js
-index 1371c2c..aa41795 100644
+index 970eb82..6c09fa2 100644
 --- a/node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js
 +++ b/node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js
-@@ -248,6 +248,10 @@ const TURN_NO_RESULT_MESSAGE = "The turn ended without a result: the agent went
+@@ -254,6 +254,10 @@ const TURN_NO_RESULT_MESSAGE = "The turn ended without a result: the agent went
   *  agreed ACP steering wire protocol; advertised to clients via the top-level
   *  `InitializeResponse._meta.steering.supported`. */
  const STEER_METHOD = "_session/steering";
@@ -13,7 +13,7 @@ index 1371c2c..aa41795 100644
  /** Stops one Claude background task without cancelling the parent prompt turn. */
  const ASYNC_TASK_STOP_METHOD = "_session/async_task/stop";
  function parseAsyncTaskStopRequest(value) {
-@@ -272,6 +276,8 @@ function parseAsyncTaskStopRequest(value) {
+@@ -278,6 +282,8 @@ function parseAsyncTaskStopRequest(value) {
   *  ACP request and hiding the client's user-input card (IJAI-1191). */
  const STEER_PRIORITY_NOW = "now";
  const STEER_PRIORITY_LATER = "later";
@@ -22,7 +22,7 @@ index 1371c2c..aa41795 100644
  /** Validate raw JSON-RPC params into a {@link SteerRequest}. Kept minimal — the
   *  content blocks are handed to `promptToClaude`, which tolerates unknown block
   *  types — but `sessionId` and a non-empty `prompt` array are required. */
-@@ -293,12 +299,37 @@ function parseSteerRequest(params) {
+@@ -299,12 +305,37 @@ function parseSteerRequest(params) {
      if (idleBehavior !== undefined && idleBehavior !== "promptRequired") {
          throw RequestError.invalidParams(undefined, "unsupported steering idleBehavior");
      }
@@ -60,7 +60,7 @@ index 1371c2c..aa41795 100644
  /** Result-message origin kinds that mark an AUTONOMOUS cycle — work the
   *  model did on its own (a task-notification followup, a peer/coordinator/
   *  observer message it handled) rather than the user's prompt. Absent,
-@@ -2639,12 +2670,13 @@ export class ClaudeAcpAgent {
+@@ -2729,12 +2760,13 @@ export class ClaudeAcpAgent {
              prompt: params.prompt,
          };
          const userMessage = promptToClaude(promptRequest);
@@ -76,7 +76,7 @@ index 1371c2c..aa41795 100644
          // Mark before the push and in the same synchronous section as the in-flight
          // check: the interrupt can have the CLI finalizing the aborted cycle by the
          // time the consumer next runs, and an unmarked result would settle the turn
-@@ -2664,7 +2696,35 @@ export class ClaudeAcpAgent {
+@@ -2755,7 +2787,35 @@ export class ClaudeAcpAgent {
          session.input.push(userMessage);
          const firstText = params.prompt[0]?.type === "text" ? params.prompt[0].text : "";
          await this.publishGoalFromPrompt(sessionId, firstText, steeredUuid);
@@ -113,7 +113,7 @@ index 1371c2c..aa41795 100644
      }
      async stopAsyncTask(params) {
          const session = this.sessions[params.sessionId];
-@@ -2823,6 +2883,7 @@ export class ClaudeAcpAgent {
+@@ -2914,6 +2974,7 @@ export class ClaudeAcpAgent {
          const noticedToolUses = new Set();
          const asyncTasks = (session.asyncTaskRuntime ??= new AsyncTaskRuntime(clientSupportsAsyncTasks(this.clientCapabilities), params.sessionId, async (notification) => this.client.sessionUpdate(asSdkSessionNotification(notification)), {
              notices: supportsNotices,
@@ -121,7 +121,7 @@ index 1371c2c..aa41795 100644
              // A task that a subagent tool call started belongs to the child
              // session of that tool call, like the tool call itself.
              routeOf: (toolCallId) => session.nativeSubagentRuntime?.routeOfToolCall(toolCallId, session.eagerToolCallSessions?.get(toolCallId)),
-@@ -4684,6 +4745,7 @@ export class ClaudeAcpAgent {
+@@ -4795,6 +4856,7 @@ export class ClaudeAcpAgent {
                                      // The SDK can resume a finished subagent under the same
                                      // agent id without a new task_started.
                                      resumeLiveTask(message.task_id);
@@ -129,7 +129,7 @@ index 1371c2c..aa41795 100644
                                      await subagents.taskResumed(message.task_id, sendUpdate, sendMessageResumePrompt(session.toolUseCache, message.task_id));
                                  }
                                  break;
-@@ -6051,6 +6113,7 @@ export class ClaudeAcpAgent {
+@@ -6178,6 +6240,7 @@ export class ClaudeAcpAgent {
                                  // started ended, and then resumes nothing.
                                  if (!subagents.isEndedDelegation(resumedAgentId, resume?.toolUseId)) {
                                      resumeLiveTask(resumedAgentId);
@@ -137,7 +137,7 @@ index 1371c2c..aa41795 100644
                                      await subagents.sendMessageResumed(resumedAgentId, sendUpdate, resume?.text, resume?.toolUseId);
                                  }
                              }
-@@ -10903,6 +10966,8 @@ export function v1AgentApp(logger, onAgent) {
+@@ -11430,6 +11493,8 @@ export function v1AgentApp(logger, onAgent) {
          .onRequest(methods.agent.session.prompt, (ctx) => runPromptWithCancellation(agent, ctx.params, ctx.signal))
          .onNotification(methods.agent.session.cancel, (ctx) => agent.cancel(ctx.params))
          .onRequest(STEER_METHOD, { parse: parseSteerRequest }, (ctx) => agent.steer(ctx.params))
@@ -147,11 +147,11 @@ index 1371c2c..aa41795 100644
          .onRequest(GOAL_CONTROL_METHOD, { parse: parseGoalRequest }, (ctx) => agent.goal(ctx.params));
      return sessionIndex.onSessionIndexRequests(app, () => agent);
 diff --git a/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.d.ts b/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.d.ts
-index 475c2a7..d4f05b8 100644
+index 8038a2e..6644073 100644
 --- a/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.d.ts
 +++ b/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.d.ts
-@@ -99,10 +99,12 @@ export declare class AsyncTaskRuntime {
-      *  `Monitor` tool call started is ignored. */
+@@ -101,10 +101,12 @@ export declare class AsyncTaskRuntime {
+      *  it as `local_bash`, so the adapter names it a monitor. */
      options?: {
          notices?: boolean;
 +        nativeSubagents?: boolean;
@@ -164,30 +164,30 @@ index 475c2a7..d4f05b8 100644
      taskUpdated(message: AsyncTaskUpdated): Promise<void>;
      taskUpdated(taskId: string, patch: TaskPatch): Promise<void>;
 diff --git a/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.js b/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.js
-index fa3d8e8..1a113b8 100644
+index 13ed236..7b57211 100644
 --- a/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.js
 +++ b/node_modules/@agentclientprotocol/claude-agent-acp/dist/async-tasks.js
-@@ -48,7 +48,8 @@ export class AsyncTaskRuntime {
+@@ -49,7 +49,8 @@ export class AsyncTaskRuntime {
          if (!taskId)
              return;
          const task = this.task(taskId);
--        if (isSubagentTask(message) || isMonitorTask(message)) {
+-        if (isSubagentTask(message)) {
 +        // Without native subagent sessions, a background subagent is reported as a task like any other.
-+        if ((isSubagentTask(message) && this.options.nativeSubagents) || isMonitorTask(message)) {
++        if (isSubagentTask(message) && this.options.nativeSubagents) {
              this.ignore(task);
              return;
          }
-@@ -72,7 +73,8 @@ export class AsyncTaskRuntime {
+@@ -73,7 +74,8 @@ export class AsyncTaskRuntime {
          if (!taskId)
              return;
          const task = this.task(taskId);
--        if (isSubagentTask(message) || isMonitorTask(message)) {
+-        if (isSubagentTask(message)) {
 +        // Without native subagent sessions, a background subagent is reported as a task like any other.
-+        if ((isSubagentTask(message) && this.options.nativeSubagents) || isMonitorTask(message)) {
++        if (isSubagentTask(message) && this.options.nativeSubagents) {
              this.ignore(task);
              return;
          }
-@@ -125,6 +127,20 @@ export class AsyncTaskRuntime {
+@@ -126,6 +128,20 @@ export class AsyncTaskRuntime {
          }
          await this.finish(task, state, nonBlankString(patch.error), "event");
      }
@@ -208,32 +208,24 @@ index fa3d8e8..1a113b8 100644
      async taskProgress(message) {
          if (!this.enabled)
              return;
-@@ -222,10 +238,16 @@ export class AsyncTaskRuntime {
+@@ -223,8 +239,10 @@ export class AsyncTaskRuntime {
              if (task.ignored || isTerminal(task.state))
                  continue;
              const levelTaskType = field(item, "taskType", "task_type");
--            if (levelTaskType === "local_agent" || levelTaskType === "local_monitor") {
-+            if (levelTaskType === "local_monitor") {
-                 this.ignore(task);
-                 continue;
-             }
+-            if (levelTaskType === "local_agent") {
+-                this.ignore(task);
 +            // A level never announces a subagent: only task_started says whether it runs in the background.
 +            if (levelTaskType === "local_agent" && !task.announced) {
 +                if (this.options.nativeSubagents)
 +                    this.ignore(task);
-+                continue;
-+            }
+                 continue;
+             }
              if (!task.startedObserved) {
-                 // The replace-level proves liveness but carries neither transcript
-                 // policy nor full identity. Recover it for the Async Tasks panel only;
-diff --git a/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js b/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js
-old mode 100755
-new mode 100644
 diff --git a/node_modules/@agentclientprotocol/claude-agent-acp/dist/session-index/connection.js b/node_modules/@agentclientprotocol/claude-agent-acp/dist/session-index/connection.js
-index 29d7f4a..a7d8b8f 100644
+index da1685b..741482e 100644
 --- a/node_modules/@agentclientprotocol/claude-agent-acp/dist/session-index/connection.js
 +++ b/node_modules/@agentclientprotocol/claude-agent-acp/dist/session-index/connection.js
-@@ -254,18 +254,19 @@ export class SessionIndexConnection {
+@@ -258,18 +258,19 @@ export class SessionIndexConnection {
       */
      async deleteSession(params) {
          const loaded = this.host.agent.sessions[params.sessionId] !== undefined;

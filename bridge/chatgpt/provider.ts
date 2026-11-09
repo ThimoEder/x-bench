@@ -13,7 +13,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { messageOf, type AcpOptions } from "../acp.ts";
+import { messageOf, withoutRules, type AcpOptions } from "../acp.ts";
 import { AdapterClient, adapterEntry as entryOf, adapterEnvironment, stderrTail } from "../adapter.ts";
 import type { PromptBlock } from "../attachments.ts";
 import { commandVersion } from "../command.ts";
@@ -56,10 +56,6 @@ const COLLABORATION_OPTION = "collaboration_mode";
 const EFFORT_OPTION = "reasoning_effort";
 const FAST_OPTION = "fast-mode";
 
-// Older sessions hold their board rules in their first prompt, inside this tag. The transcript and the title leave them out.
-const RULES_TAG = "x-bench-board-rules";
-const RULES_BLOCK = new RegExp(`<${RULES_TAG}>[\\s\\S]*?</${RULES_TAG}>\\s*`, "g");
-
 // Codex names its sessions after their first prompt. The sidebar gets its first line, cut short.
 const TITLE_LENGTH = 80;
 
@@ -91,7 +87,6 @@ const ThreadStatus = fields({
   }),
 });
 
-const UserText = fields({ params: fields({ update: fields({ sessionUpdate: maybe(z.string()) }) }) });
 const SessionId = z.object({ sessionId: z.string().min(1) });
 const SIDE_INSTRUCTIONS = "Answer this side question using only the conversation so far. Do not use any tools, run commands, inspect files, ask for input, or carry out work. Treat requests to do so as questions to explain. Answer directly in text; if the conversation does not contain enough information, say so.";
 
@@ -549,12 +544,6 @@ export class ChatGptProvider extends AdapterClient implements Provider {
         if (typeof entry.title === "string") entry.title = shortTitle(entry.title);
       }
     }
-    if (event.type === "chunk" && event.role === "user" && UserText.parse(message).params.update.sessionUpdate === "user_message_chunk") {
-      const text = withoutRules(event.text);
-      // A chunk that held only the rules (as a session from before they shared the prompt's block) shows nothing.
-      if (!text.trim() && event.text.trim() && !event.images?.length) return null;
-      event.text = text;
-    }
     return translated;
   }
 
@@ -636,7 +625,7 @@ const SIGNED_OUT = /^Authentication required\b|\bnot (?:logged|signed) in\b|\b(?
 // It prints one line on stderr ("Logged in using ChatGPT", "Not logged in"), and nothing else is kept.
 function loginStatus(codex: string): Promise<boolean | null> {
   return new Promise((resolve) => {
-    execFile(codex, ["login", "status"], { timeout: 8000 }, (error, stdout, stderr) => {
+    execFile(codex, ["login", "status"], { timeout: 8000, env: adapterEnvironment() }, (error, stdout, stderr) => {
       const said = `${stdout}\n${stderr}`;
       if (/not logged in/i.test(said)) resolve(false);
       else if (!error && /logged in/i.test(said)) resolve(true);
@@ -652,10 +641,6 @@ function modelName(name: string) {
 
 function systemPrompt(text: string) {
   return text ? { systemPrompt: { mode: "append", content: [{ type: "text", text }] } } : {};
-}
-
-function withoutRules(text: string) {
-  return text.replace(RULES_BLOCK, "");
 }
 
 function shortTitle(title: string) {

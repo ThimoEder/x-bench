@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseGitWorktreeList } from "./folderGit.ts";
-import { addWorktree, appWorktreeOf, createHarnessWorktree, gitWorktreeRows, removeChatWorktree, removeWorktree } from "./worktree.ts";
+import { addWorktree, appWorktreeOf, createHarnessWorktree, gitWorktreeRows, removeChatWorktree, removeWorktree, worktreeChanges } from "./worktree.ts";
 
 test("a worktree gets a new branch named after the message in its own folder, and the source branch stays", async () => {
   const repo = makeRepo();
@@ -94,6 +94,37 @@ test("git's worktree list leaves out the main checkout, also from inside a linke
     assert.deepEqual(parseGitWorktreeList(gone), []);
   } finally {
     fs.rmSync(tree, { recursive: true, force: true });
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("an app worktree's uncommitted changes are listed before it goes, and discarding them removes it while its branch stays", async () => {
+  const repo = makeRepo();
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "x-bench-worktrees-")));
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), "x-bench-plain-"));
+  try {
+    const created = await createHarnessWorktree("claude", repo, "main", { name: "Draft", root });
+    const worktree = appWorktreeOf(created.path, root) ?? "";
+    const alone = [{ id: "a", cwd: created.path }];
+    assert.equal(await worktreeChanges(worktree, "a", alone, root), null);
+    assert.equal(await worktreeChanges(path.join(root, "gone", "gone"), "a", [], root), null);
+    await assert.rejects(worktreeChanges(plain, "a", [], root), /^Error: The worktree's changes could not be read/);
+
+    fs.writeFileSync(path.join(created.path, "note.txt"), "one\ntwo\n");
+    execFileSync("git", ["add", "note.txt"], { cwd: created.path });
+    fs.writeFileSync(path.join(created.path, "note.txt"), "one\n");
+    fs.writeFileSync(path.join(created.path, "draft.txt"), "draft\n");
+    const changes = await worktreeChanges(worktree, "a", alone, root);
+    assert.equal(changes?.branch, "claude/draft");
+    assert.deepEqual(changes?.files.map((file) => [file.path, file.type]), [["draft.txt", "untracked"], ["note.txt", "edit"]]);
+    assert.equal(await worktreeChanges(worktree, "a", [...alone, { id: "b", cwd: created.path }], root), null);
+
+    assert.equal(await removeChatWorktree(worktree, "a", alone, root, true), "");
+    assert.equal(fs.existsSync(worktree), false);
+    assert.match(execFileSync("git", ["branch", "--list", created.label], { cwd: repo, encoding: "utf8" }), /claude\/draft/);
+  } finally {
+    fs.rmSync(plain, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });

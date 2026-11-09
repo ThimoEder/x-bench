@@ -105,6 +105,7 @@ export function App() {
   const desk: Desk = {
     call, notices, dismissNotice, tickets: snapshot.tickets, projects: snapshot.projects, platform: snapshot.platform,
     openFile: dock.openFile, openReview: dock.openReview, toggleTerminal: dock.toggleTerminal, openProject: actions.openProject,
+    createBoard: actions.setCreateBoard,
   };
 
   if (!ready) {

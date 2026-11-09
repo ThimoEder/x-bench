@@ -19,7 +19,7 @@ interface TaskItem extends Partial<Pick<ToolFacts, "role" | "command" | "label" 
 interface TaskSession {
   status?: string;
   transcript?: readonly TaskItem[];
-  backgroundTasks?: readonly Pick<BackgroundTask, "id" | "status" | "label" | "kind" | "toolCallId">[];
+  backgroundTasks?: readonly Pick<BackgroundTask, "id" | "status" | "label" | "kind" | "toolCallId" | "canStop">[];
 }
 
 export interface RunningTask {
@@ -30,6 +30,7 @@ export interface RunningTask {
   // A subagent's latest step, and the id of its row in the thread.
   step?: string;
   rowId?: string;
+  canStop?: false;
 }
 
 export function runningTasks(session: TaskSession | null | undefined): RunningTask[] {
@@ -52,7 +53,7 @@ export function runningTasks(session: TaskSession | null | undefined): RunningTa
     seen.add(task.id);
     const row = task.toolCallId ? subtasks.get(task.toolCallId) : undefined;
     if (row) tasks.push(agentTask(task.id, row, transcript, subtasks, task.label));
-    else tasks.push({ id: task.id, label: task.label || "Background task", agent: task.kind === "local_agent" });
+    else tasks.push({ id: task.id, label: task.label || "Background task", agent: task.kind === "local_agent", ...(task.canStop === false ? { canStop: false as const } : {}) });
   }
   for (const item of session.transcript ?? []) {
     if (!isBackgroundCommand(item) || !isLive(item.status)) continue;

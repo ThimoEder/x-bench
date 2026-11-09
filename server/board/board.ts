@@ -76,6 +76,8 @@ export interface BoardRouteServices {
   setUpSak?: (baseUrl: string) => Promise<void>;
   // The checkout a worktree was added from. A worktree without its own board binding uses that checkout's.
   projectHome?: (folder: string) => string;
+  // Runs once a folder got or lost a board, so its open chats get the rules or drop them.
+  bindingChanged?: (folder: string) => void;
   openBoardPage?: (page: SignedInPage) => Promise<unknown>;
 }
 
@@ -213,6 +215,7 @@ async function routeBoard<Res>(
   if (method === "POST" && pathname === "/api/board/boards") {
     const folder = folderOf(input.cwd, ctx);
     const created = await byProvider[providerOf(input.provider)].bind(folder, input);
+    ctx.bindingChanged?.(folder);
     ctx.publish?.();
     ctx.sendJson(res, 201, created);
     return;
@@ -221,6 +224,7 @@ async function routeBoard<Res>(
     const folder = canonicalCwd(input.cwd ?? "");
     if (!folder) throw boardError(400, "Choose a folder");
     writeTickets(unbindProject(readTickets(files.tickets), folder), files.tickets);
+    ctx.bindingChanged?.(folder);
     ctx.publish?.();
     ctx.sendJson(res, 200, { ok: true });
     return;

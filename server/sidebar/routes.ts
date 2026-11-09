@@ -7,7 +7,7 @@ import { canonicalCwd } from "../chat/sessions.ts";
 import { stopWork } from "../chat/switchChat.ts";
 import { type SidebarState, addFolder, archiveSession, cleanTitle, folderNamed, moveToFolder, pinSession, removeFolder, removeProject, renameFolder, renameSession, reorderProjects, setFolderCollapsed, setProjectCollapsed, unarchiveSession, unpinSession } from "./sidebar.ts";
 import { sendJson } from "../http.ts";
-import { appWorktreeOf, removeChatWorktree } from "../git/worktree.ts";
+import { appWorktreeOf, removeChatWorktree, worktreeChanges } from "../git/worktree.ts";
 import { answerCleanup, readTickets, writeTickets } from "../board/tickets.ts";
 import type { Host } from "../app.ts";
 import { route, type Route } from "../router.ts";
@@ -141,17 +141,22 @@ export function sidebarRoutes(host: Host): Route[] {
     route({
       method: "POST",
       path: "/api/archive",
-      body: SessionBody.extend({ worktree: z.boolean().optional() }),
+      body: SessionBody.extend({ worktree: z.boolean().optional(), discard: z.boolean().optional() }),
       async handle({ res, body }) {
         // Archiving hides the row and keeps the ticket link and the history, and answers a done ticket's offer to archive. It ends the session's turn, background tasks and shells.
         const { sessionId } = body;
         const listed = [...store.snapshot.projects.flatMap((project) => project.sessions), ...store.snapshot.chats].find((session) => session.id === sessionId);
+        const worktreeRoot = canonicalCwd(host.paths.worktrees);
+        const worktree = body.worktree === true && listed?.ownWorktree ? appWorktreeOf(listed.cwd, worktreeRoot) : null;
+        const changes = worktree && !body.discard ? await worktreeChanges(worktree, sessionId, host.chatRows(), worktreeRoot) : null;
+        if (changes) {
+          sendJson(res, 200, { changes });
+          return;
+        }
         changeSidebar((state) => archiveSession(state, sessionId));
         host.terminals.endSession(sessionId);
         await stopWork(host.providers.forSession(sessionId), sessionId);
-        const worktreeRoot = canonicalCwd(host.paths.worktrees);
-        const worktree = body.worktree === true && listed?.ownWorktree ? appWorktreeOf(listed.cwd, worktreeRoot) : null;
-        const kept = worktree ? await removeChatWorktree(worktree, sessionId, host.chatRows(), worktreeRoot) : "";
+        const kept = worktree ? await removeChatWorktree(worktree, sessionId, host.chatRows(), worktreeRoot, body.discard) : "";
         const tickets = readTickets(host.paths.tickets);
         const answered = answerCleanup(tickets, sessionId);
         if (JSON.stringify(answered) !== JSON.stringify(tickets)) writeTickets(answered, host.paths.tickets);

@@ -172,15 +172,15 @@ export function CreateBoard({ cwd, name, call, onClose, onCreated, onSetup }: Cr
       : "Checking Trello…"
     : sak
       ? sak.enabled
-        ? "SAK is not reachable. Open setup to check the connection."
-        : "Enable SAK in setup. This folder can match a project after that."
-      : "Checking SAK…";
+        ? "The local board is not reachable. Open setup to check the connection."
+        : "Enable the local board in setup. This folder can match a board after that."
+      : "Checking the local board…";
   const copy = source === "jira"
     ? `Match ${name} to one of your Jira boards. New boards are made in Jira.`
     : source === "trello"
       ? `Match ${name} to a Trello board, or create one for this folder.`
-      : `Match ${name} to a SAK project, or create a board for this folder.`;
-  const listName = source === "jira" ? "Jira boards" : source === "trello" ? "Trello boards" : "SAK projects";
+      : `Match ${name} to a local board, or create one for this folder.`;
+  const listName = source === "jira" ? "Jira boards" : source === "trello" ? "Trello boards" : "local boards";
   const needle = query.trim().toLowerCase();
   const shown = choices?.filter((item) => [item.title, item.project, source === "sak" ? item.id : null].some((value) => keyOf(value)?.toString().toLowerCase().includes(needle)));
   const pickedShown = Boolean(picked) && Boolean(shown?.some((item) => item.id === picked));
@@ -198,7 +198,7 @@ export function CreateBoard({ cwd, name, call, onClose, onCreated, onSetup }: Cr
         <h2 id="create-board-title">Create board</h2>
         <div className="sheet-switch" role="tablist" aria-label="Board source">
           <button type="button" role="tab" aria-selected={source === "sak"} className={source === "sak" ? "is-picked" : ""} onClick={() => chooseSource("sak")}>
-            Local SAK
+            Local
           </button>
           <button type="button" role="tab" aria-selected={source === "trello"} className={source === "trello" ? "is-picked" : ""} onClick={() => chooseSource("trello")}>
             Trello
@@ -247,7 +247,7 @@ export function CreateBoard({ cwd, name, call, onClose, onCreated, onSetup }: Cr
               <button type="button" className="text-button" onClick={onClose} disabled={busy}>Cancel</button>
               {source === "jira" ? null : (
                 <button type="button" className="text-button" disabled={busy} onClick={createProject}>
-                  {source === "trello" ? `New Trello board “${name || "Project"}”` : `New SAK project “${name || "Project"}”`}
+                  {source === "trello" ? `New Trello board “${name || "Project"}”` : `New local board “${name || "Project"}”`}
                 </button>
               )}
               <button type="submit" className="primary" disabled={busy || !pickedShown}>Match</button>

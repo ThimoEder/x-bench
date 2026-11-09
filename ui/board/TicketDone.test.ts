@@ -47,6 +47,7 @@ test("the row archives the chat with its worktree, or keeps it, and waits for th
     openReview: () => {},
     toggleTerminal: () => {},
     openProject: () => {},
+    createBoard: () => {},
   };
   const session: TranscriptSession = { id: "s", cwd: "/wt/fix", title: "Fix", transcript: [], status: "idle", configOptions: [], queue: [], revision: 1, modeId: "auto" };
   const sessionAct = async (...args: unknown[]) => void calls.push(["act", ...args]);

@@ -69,6 +69,7 @@ export function Onboarding({ call, onDone }: OnboardingProps) {
   const [view, setView] = useState<ProviderSettingsView | null>(null);
   const [form, setForm] = useState<ProviderForm | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   // The providers whose switch the person flipped here.
   const touched = useRef(new Set<string>());
@@ -82,6 +83,7 @@ export function Onboarding({ call, onDone }: OnboardingProps) {
   }, []);
 
   const check = useCallback(() => {
+    setChecking(true);
     call("/api/providers", null, "GET")
       .then((next) => {
         const wanted = installedDefaults(show(next), touched.current);
@@ -92,7 +94,8 @@ export function Onboarding({ call, onDone }: OnboardingProps) {
           .then(show)
           .finally(() => setBusy(false));
       })
-      .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Request failed"));
+      .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Request failed"))
+      .finally(() => setChecking(false));
   }, [call, show]);
 
   useEffect(check, [check]);
@@ -205,7 +208,9 @@ export function Onboarding({ call, onDone }: OnboardingProps) {
             ) : (
               <div className="onboarding-row">
                 <span>{ready.length ? "" : "Signed in somewhere else? Check again."}</span>
-                <button type="button" className="text-button" data-testid="onboarding-check" onClick={check}>Check again</button>
+                <button type="button" className="text-button" data-testid="onboarding-check" disabled={checking} onClick={check}>
+                  {checking ? <><span className="update-spin" aria-hidden="true" />Checking…</> : "Check again"}
+                </button>
               </div>
             )}
           </div>

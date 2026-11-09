@@ -38,6 +38,7 @@ const { createVoice: voiceIn, modelDir } = await import("./voice/voice.ts");
 const { createSessionIndex } = await import("./chat/sessionIndex.ts");
 const { SUMMARY_REQUEST } = await import("./chat/handoff.ts");
 const { isRecord } = await import("../bridge/lenient.ts");
+const { setShellEnvironment } = await import("../bridge/adapter.ts");
 const { createApp } = await import("./app.ts");
 const { createDesk } = await import("./desk.ts");
 const { createDevices } = await import("./devices/devices.ts");
@@ -1842,6 +1843,24 @@ test("a save of other settings leaves Claude alone, even when its saved folder i
   }
 });
 
+test("with no folder saved, settings show the Claude folder the shell profile exports", async () => {
+  const claude = fakeClaude();
+  const host = startHost({}, home, [claude.provider]);
+  const folder = fs.mkdtempSync(path.join(home, ".config-claude-"));
+  setShellEnvironment({ CLAUDE_CONFIG_DIR: folder });
+  try {
+    const shown = await call(host.app, "GET", "/api/providers");
+    assert.ok(isRecord(shown.body.claude));
+    assert.equal(shown.body.claude.configDir, `~/${path.basename(folder)}`);
+    assert.equal(shown.body.claude.configDirSaved, false);
+    assert.ok(Array.isArray(shown.body.claude.folders) && shown.body.claude.folders.includes(`~/${path.basename(folder)}`));
+  } finally {
+    setShellEnvironment({});
+    await host.stop();
+    claude.cleanup();
+  }
+});
+
 test("a provider another host turns off stops here too, keeps its chats and leaves the menu", async () => {
   const claude = fakeClaude();
   const settings = memoryProviderSettings();
@@ -2929,7 +2948,7 @@ test("routines are created, changed, run and deleted over the API", async () => 
   }
 });
 
-test("deleting a routine run's chat can remove the worktree the run made", async () => {
+test("deleting a routine run's chat can remove the worktree the run made, and asks before its uncommitted changes go", async () => {
   const RUN = "01a10300-0000-7000-8000-000000000002";
   const host = startHost({ "session/prompt": () => {}, "session/new": (message, grok) => grok.reply(message, { sessionId: RUN, configOptions: [] }) });
   const repo = makeRepo();
@@ -2940,7 +2959,12 @@ test("deleting a routine run's chat can remove the worktree the run made", async
     const cwd = isRecord(ran.body) ? String(ran.body.cwd) : "";
     assert.match(path.basename(cwd), /^routine-tidy-/);
     assert.equal(host.app.store.snapshot.routines.list.find((routine) => routine.id === id)?.runs[0]?.ownWorktree, true);
-    assert.equal((await call(host.app, "POST", "/api/delete", { sessionId: RUN, worktree: true })).status, 200);
+    fs.writeFileSync(path.join(cwd, "draft.txt"), "draft\n");
+    const asked = await call(host.app, "POST", "/api/delete", { sessionId: RUN, worktree: true });
+    const changes = isRecord(asked.body) && isRecord(asked.body.changes) ? asked.body.changes : {};
+    assert.deepEqual(Array.isArray(changes.files) ? changes.files.map((file) => (isRecord(file) ? file.path : "")) : [], ["draft.txt"]);
+    assert.equal(fs.existsSync(cwd), true);
+    assert.equal((await call(host.app, "POST", "/api/delete", { sessionId: RUN, worktree: true, discard: true })).status, 200);
     assert.equal(fs.existsSync(cwd), false);
     await call(host.app, "POST", "/api/routines/delete", { id });
   } finally {

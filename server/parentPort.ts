@@ -50,9 +50,11 @@ export function openSessionOf(data: unknown): string | null {
   return isRecord(data) && data.type === "open-session" && typeof data.sessionId === "string" && data.sessionId ? data.sessionId : null;
 }
 
-// The app sends { type: "secret-key", key, dev } first: key is null when the app has none, and dev is true for X Bench Dev.
-// undefined for any other message.
-export function secretKeyOf(data: unknown): { key: string | null; dev: boolean } | undefined {
-  if (!isRecord(data) || data.type !== "secret-key") return undefined;
-  return { key: typeof data.key === "string" ? data.key : null, dev: data.dev === true };
+// The app's first message, which the host waits for before it starts.
+export type StartMessage = { key: string | null; dev: boolean; shellEnv: Record<string, string> };
+
+export function startOf(data: unknown): StartMessage | undefined {
+  if (!isRecord(data) || data.type !== "start") return undefined;
+  const shellEnv = isRecord(data.shellEnv) ? Object.fromEntries(Object.entries(data.shellEnv).filter((entry): entry is [string, string] => typeof entry[1] === "string")) : {};
+  return { key: typeof data.key === "string" ? data.key : null, dev: data.dev === true, shellEnv };
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { TicketLink } from "../../server/snapshot.ts";
 import type { SessionCall, TranscriptSession } from "../chat/Transcript.tsx";
 import { useDesk } from "../deskContext.ts";
+import { useWorktreeDiscard } from "../git/WorktreeDiscard.tsx";
 import { CloseIcon } from "../icons.tsx";
 import { ticketNumber } from "./TicketCreate.tsx";
 import { statusKey } from "./ticketStatus.ts";
@@ -22,8 +23,9 @@ export function doneTicket(links: readonly TicketLink[] | undefined): TicketLink
 export function TicketDone({ session, running, act }: TicketDoneProps) {
   const { tickets, projects, call } = useDesk();
   const [busy, setBusy] = useState<"" | "archive" | "keep">("");
+  const discard = useWorktreeDiscard();
   const link = doneTicket(tickets?.bySession?.[session.id]);
-  if (!link || running || session.archived) return null;
+  if (!link || running || session.archived) return discard.dialog;
   const ownWorktree = projects.some((project) => project.sessions.some((item) => item.id === session.id && item.ownWorktree));
 
   // The archive route clears the flag itself, after the archive went through.
@@ -31,8 +33,8 @@ export function TicketDone({ session, running, act }: TicketDoneProps) {
     setBusy(archive ? "archive" : "keep");
     try {
       if (archive) {
-        await act("/api/archive", ownWorktree ? { worktree: true } : {});
-        await act("/api/leave");
+        const gone = ownWorktree ? await discard.guard("archive", (body) => act("/api/archive", body)) : await act("/api/archive", {}).then(() => true);
+        if (gone) await act("/api/leave");
       } else {
         await call("/api/board/links/cleanup", { sessionId: session.id }, "DELETE");
       }
@@ -57,6 +59,7 @@ export function TicketDone({ session, running, act }: TicketDoneProps) {
       <button type="button" className="icon" disabled={Boolean(busy)} aria-label="Keep this chat" title="Keep this chat" onClick={() => void answer(false)}>
         <CloseIcon />
       </button>
+      {discard.dialog}
     </div>
   );
 }

@@ -66,6 +66,7 @@ export interface MessageListProps {
   // Answers the agent's requests, which show as cards at the end of the thread.
   act?: SessionCall;
   agentLabel?: string;
+  footer?: ReactNode;
 }
 
 // The model the session runs on, as its model menu names it.
@@ -78,7 +79,7 @@ const RISE: Keyframe[] = [{ opacity: 0, translate: "0 14px", filter: "blur(4px)"
 
 // The scrolling transcript. It follows the end while the reader is at the bottom. Scrolled up, it stays
 // put and offers a button back to the end, which says so when something new arrived below.
-export function MessageList({ session, plain, drafting, welcome = false, followTick = 0, onOpenFile, onOpenBoard, onSendNow, onRemoveSteer, providerLabel = (provider) => provider, onCancelSwitch, onStopTask, act, agentLabel }: MessageListProps) {
+export function MessageList({ session, plain, drafting, welcome = false, followTick = 0, onOpenFile, onOpenBoard, onSendNow, onRemoveSteer, providerLabel = (provider) => provider, onCancelSwitch, onStopTask, act, agentLabel, footer }: MessageListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
   const pinning = useRef(false);
@@ -307,6 +308,7 @@ export function MessageList({ session, plain, drafting, welcome = false, followT
             <QuestionCard key={session.pendingQuestion.id} question={session.pendingQuestion} call={act} provider={session.provider} onAnswered={answered} />
           ) : null}
           {act && session.pendingPlan ? <ChatPlanCard plan={session.pendingPlan} cwd={session.cwd} onDecide={(outcome) => act("/api/plan", { outcome })} onAnswered={answered} /> : null}
+          {footer}
           {switching ? (
             <>
               <PendingWrinkle switching={switching} stretch={stretches.length + 1} label={providerLabel} onCancel={onCancelSwitch} />

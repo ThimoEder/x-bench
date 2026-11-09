@@ -127,7 +127,7 @@ export function DeviceSettings({ call }: DeviceSettingsProps) {
         </section>
       ))}
       <button type="button" className="device-recheck" disabled={checking} onClick={() => void check()}>
-        {checking ? "Checking…" : "Check again"}
+        {checking ? <><span className="update-spin" aria-hidden="true" />Checking…</> : "Check again"}
       </button>
       {error ? <p className="sheet-error">{error}</p> : null}
     </div>

@@ -137,7 +137,7 @@ export function sakAdapter(services: BoardServices): BoardAdapter {
   const request = sakRequest(files.connections.sak, fetchOptions);
   return {
     provider: "sak",
-    label: "SAK",
+    label: "Local board",
     capabilities: sakCapabilities,
     open(folder, binding) {
       return binding.provider === "sak" ? sakBoard(request, services, folder, binding) : null;
@@ -163,23 +163,23 @@ export function sakAdapter(services: BoardServices): BoardAdapter {
     },
     async createBoard(title, description) {
       const name = clean(title, 200);
-      if (!name) throw sakError(400, "Name the SAK project");
+      if (!name) throw sakError(400, "Name the board");
       return request("POST", "/api/projects", description === undefined ? { title: name } : { title: name, description });
     },
     async bind(folder, choice) {
       const hasId = choice.projectId !== undefined && choice.projectId !== "";
       const hasTitle = Boolean(clean(choice.title, 200));
-      if (hasId === hasTitle) throw sakError(400, "Choose a SAK project or a name");
+      if (hasId === hasTitle) throw sakError(400, "Choose a board or a name");
       let project;
       if (hasId) {
         const projectId = Number(choice.projectId);
-        if (!Number.isInteger(projectId) || projectId <= 0) throw sakError(400, "Choose a SAK project");
+        if (!Number.isInteger(projectId) || projectId <= 0) throw sakError(400, "Choose a board");
         project = await request("GET", `/api/projects/${projectId}`);
       } else {
         project = await request("POST", "/api/projects", { title: clean(choice.title, 200) });
       }
       const read = SakProject.parse(project);
-      if (!read.id) throw sakError(502, "SAK did not return a project");
+      if (!read.id) throw sakError(502, "The local board did not return the new board");
       writeTickets(bindBoard(readTickets(files.tickets), folder, projectBinding(project)), files.tickets);
       return { projectId: Number(read.id), title: read.title || "" };
     },
@@ -241,10 +241,10 @@ export function sakAdapter(services: BoardServices): BoardAdapter {
       return sakComment(await request("POST", `/api/tasks/${taskId}/comments`, { body: text }));
     },
     async editComment() {
-      throw sakError(400, "SAK keeps comments as they were written");
+      throw sakError(400, "The local board keeps comments as they were written");
     },
     async deleteComment() {
-      throw sakError(400, "SAK keeps comments as they were written");
+      throw sakError(400, "The local board keeps comments as they were written");
     },
     checkItem: noChecklists,
     addCheckItem: noChecklists,
@@ -462,7 +462,7 @@ async function ensureRank(request: SakRequest, projectId: number): Promise<void>
   const defs = AttributeDefs.parse(await request("GET", `/api/projects/${projectId}/attributes`)) || [];
   const rank = defs.find((def) => def.name === RANK);
   if (rank && rank.type === "number") return;
-  if (rank) throw sakError(409, `This SAK project has a "${RANK}" attribute that is not a number`);
+  if (rank) throw sakError(409, `This board has a "${RANK}" attribute that is not a number`);
   await request("POST", `/api/projects/${projectId}/attributes`, { name: RANK, type: "number" });
 }
 

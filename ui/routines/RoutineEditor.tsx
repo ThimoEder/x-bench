@@ -18,7 +18,7 @@ export interface RoutineEditorProps {
   call: ApiCall;
   onClose: () => void;
   // After a save, with the saved routine's id.
-  onSaved: (routineId: string) => void;
+  onSaved: (routineId: string, draft: RoutineDraft) => void;
 }
 
 const MINUTES = [0, 5, 10, 15, 20, 30, 45];
@@ -116,7 +116,7 @@ export function RoutineEditor({ draft: initial, catalog, providers, projects, pl
       }
     }
     setBusy(false);
-    onSaved(id);
+    onSaved(id, draft);
   }
 
   const menuProps = (id: string) => ({

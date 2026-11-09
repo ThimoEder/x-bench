@@ -11,6 +11,7 @@
     "package.json",
     "desktop/main.js",
     "desktop/host.js",
+    "desktop/appPages.js",
     "desktop/browser/browser.js",
     "desktop/browser/browserRules.js",
     "desktop/unity/unityView.js",
@@ -49,7 +50,7 @@
     "enableNodeOptionsEnvironmentVariable": false,
     "enableEmbeddedAsarIntegrityValidation": true,
     "onlyLoadAppFromAsar": true,
-    "grantFileProtocolExtraPrivileges": true
+    "grantFileProtocolExtraPrivileges": false
   },
   "asarUnpack": [
     "node_modules/sherpa-onnx-*/**",

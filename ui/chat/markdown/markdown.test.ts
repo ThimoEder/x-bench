@@ -656,4 +656,11 @@ test("backticks inside lines do not pair up into a code block", () => {
     { type: "list", ordered: true, items: [{ text: "Run:" }] },
     { type: "code", lang: "bash", text: "   npm test" },
   ]);
+  assert.deepEqual(parseMarkdown("- ```sh\n  a\n\n  b\nafter ``` x\n- next"), [
+    { type: "text", text: "-" },
+    { type: "code", lang: "sh", text: "  a\n\n  b" },
+    { type: "text", text: "after ``` x" },
+    { type: "list", ordered: false, items: [{ text: "next" }] },
+  ]);
+  assert.deepEqual(parseMarkdown("- ```sh\n  a"), [{ type: "text", text: "-" }, { type: "code", lang: "sh", text: "  a", open: true }]);
 });

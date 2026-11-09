@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 import { fields, isRecord, maybe } from "../lenient.ts";
 import { accountUsage } from "../usage.ts";
+import { adapterEnvironment } from "../adapter.ts";
 import type { AccountUsage, UsagePeriod, UsageWindow } from "../provider.ts";
 
 const READ_TIMEOUT_MS = 20000;
@@ -42,7 +43,7 @@ const INTERNAL_ERROR = -32603;
 export function readRateLimits(server: AppServerCommand, timeoutMs = READ_TIMEOUT_MS): Promise<RateLimitsRead> {
   return new Promise((resolve) => {
     let done = false;
-    const child = spawn(server.command, server.args, { cwd: os.homedir(), env: process.env, stdio: ["pipe", "pipe", "ignore"] });
+    const child = spawn(server.command, server.args, { cwd: os.homedir(), env: adapterEnvironment(), stdio: ["pipe", "pipe", "ignore"] });
     const finish = (result: RateLimitsRead) => {
       if (done) return;
       done = true;

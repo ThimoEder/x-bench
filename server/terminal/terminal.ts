@@ -11,6 +11,7 @@ import { spawn as spawnPty, type IPty } from "node-pty";
 import headless from "@xterm/headless";
 import serializeAddon from "@xterm/addon-serialize";
 import { z } from "zod";
+import { adapterEnvironment } from "../../bridge/adapter.ts";
 
 const { Terminal: Screen } = headless;
 const { SerializeAddon } = serializeAddon;
@@ -131,7 +132,7 @@ export function createTerminals(options: TerminalOptions = {}): Terminals {
       cols,
       rows,
       cwd,
-      env: shellEnv(options.env ?? process.env),
+      env: shellEnv(options.env ?? adapterEnvironment()),
     });
     const screen = new Screen({ cols, rows, scrollback: SCROLLBACK, allowProposedApi: true });
     const serializer = new SerializeAddon();

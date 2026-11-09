@@ -83,7 +83,7 @@ test("each source answers its own board list route, and only a source that makes
     await handleBoard({ method: "POST" }, {}, new URL("/api/trello/boards", "http://127.0.0.1"), { title: "Remote" }, ctx);
     await handleBoard({ method: "GET" }, {}, new URL("/api/jira/projects", "http://127.0.0.1"), {}, ctx);
     await handleBoard({ method: "GET" }, {}, new URL("/api/trello/boards", "http://127.0.0.1"), {}, ctx);
-    assert.deepEqual(sent[0], { status: 400, body: { error: "Name the SAK project", code: null } });
+    assert.deepEqual(sent[0], { status: 400, body: { error: "Name the board", code: null } });
     assert.deepEqual(sent[1], { status: 404, body: { error: "Not found" } });
     assert.deepEqual(sent[2], { status: 404, body: { error: "Not found" } });
     assert.notEqual(sent[3]?.status, 404);

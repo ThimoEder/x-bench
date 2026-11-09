@@ -70,6 +70,16 @@ export function parseMarkdown(source: string | null | undefined, depth = 0): Mar
       fence.lastIndex = match.index + 3;
       continue;
     }
+    const body = match[3] ?? "";
+    const bodyStart = match.index + (match[1] ?? "").length + (match[2] ?? "").length;
+    const itemEnd = listItemEnd(text, match.index, bodyStart, body);
+    if (itemEnd !== -1) {
+      if (match.index > cursor) pushText(blocks, text.slice(cursor, match.index), depth);
+      blocks.push({ type: "code", lang: (match[2] ?? "").trim(), text: text.slice(bodyStart, itemEnd).replace(/^\n/, "").replace(/(?:\n[ \t]*)+$/, "") });
+      cursor = itemEnd;
+      fence.lastIndex = itemEnd;
+      continue;
+    }
     if (match[4] === undefined) break;
     if (match.index > cursor) pushText(blocks, text.slice(cursor, match.index), depth);
     blocks.push({ type: "code", lang: (match[2] ?? "").trim(), text: (match[3] ?? "").replace(/^\n/, "") });
@@ -98,6 +108,25 @@ const QUOTE = /^[ \t]*> ?/;
 
 // Deeper quotes keep their markers as text, so a long run of ">" cannot exhaust the stack.
 const MAX_QUOTE_DEPTH = 50;
+
+const LIST_MARKER = /(?:^|[ \t])(?:[-*+]|\d+[.)])[ \t]+$/;
+
+// A fence opened on a list item's first line ends with the item, at the first line indented less than the fence.
+// Returns where that line starts in text when it comes inside body, or -1.
+function listItemEnd(text: string, opener: number, bodyStart: number, body: string) {
+  const lineStart = text.lastIndexOf("\n", opener - 1) + 1;
+  const prefix = text.slice(lineStart, opener);
+  if (!LIST_MARKER.test(prefix)) return -1;
+  const column = indentOf(prefix.replace(/[^ \t]/g, " "));
+  let offset = body.indexOf("\n");
+  while (offset !== -1) {
+    const next = body.indexOf("\n", offset + 1);
+    const line = body.slice(offset + 1, next === -1 ? undefined : next);
+    if (line.trim() && indentOf(line) < column) return bodyStart + offset + 1;
+    offset = next;
+  }
+  return -1;
+}
 
 function quoted(text: string, index: number) {
   return QUOTE.test(text.slice(text.lastIndexOf("\n", index - 1) + 1, index));

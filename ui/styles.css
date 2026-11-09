@@ -1325,6 +1325,23 @@ body.is-project-drag * {
   overflow-y: auto;
 }
 
+.board-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 6px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.board-offer-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 9px; background: var(--sunken); }
+.board-offer-text { display: grid; flex: 1 1 16rem; min-width: 0; }
+.board-offer-text + button { margin-left: auto; }
+.board-offer-text b { font-weight: 600; }
+.board-offer-text span { color: var(--muted); font-size: 0.86rem; }
+.board-offer button { flex: none; height: 28px; padding: 0 0.75rem; border-radius: 8px; font-size: 0.82rem; }
+
 .project ul { list-style: none; margin: 0; padding: 0; }
 
 .session-link {
@@ -1478,6 +1495,9 @@ button.icon.has-update::after {
   border-radius: 50%;
   animation: task-spin 0.8s linear infinite;
 }
+
+button > .update-spin { display: inline-block; margin-right: 0.4rem; vertical-align: -1px; }
+button:disabled:has(> .update-spin) { opacity: 1; }
 
 .update-bar { height: 4px; margin: 0.5rem 0 0.35rem; border-radius: 999px; background: var(--line-strong); overflow: hidden; }
 .update-bar > div { height: 100%; background: var(--text); transition: width 120ms linear; }
@@ -9684,8 +9704,9 @@ html[data-shell="desktop"] .settings-title {
 .switch-actions .ghost { color: var(--muted); }
 .switch-actions .ghost:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 
-/* The ask before the speech model downloads. It covers the whole window. */
-.speech-scrim {
+/* The asks before the speech model downloads and before a worktree's uncommitted changes go. They cover the whole window. */
+.speech-scrim,
+.worktree-scrim {
   position: fixed;
   inset: 0;
   z-index: 70;
@@ -9694,6 +9715,34 @@ html[data-shell="desktop"] .settings-title {
   padding: 1rem;
   background: var(--scrim);
 }
+
+.worktree-discard { width: min(34rem, 100%); }
+.worktree-discard .git-branch { margin: 0; }
+
+.worktree-discard .worktree-files {
+  gap: 0;
+  max-height: 190px;
+  margin: 0 -1.1rem;
+  padding: 0;
+  overflow: auto;
+  border-block: 1px solid var(--line);
+  list-style: none;
+}
+
+.worktree-files li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 31px;
+  padding: 0 1.1rem;
+  color: var(--text);
+  font: 12.5px ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.worktree-files .git-path { flex: 1; min-width: 0; }
+.worktree-new { color: var(--faint); font-size: 11px; }
+.switch-actions button.danger.is-armed { background: rgba(255, 139, 139, 0.12); font-weight: 600; }
+.switch-actions button.danger.is-armed:hover:not(:disabled) { background: rgba(255, 139, 139, 0.18); }
 
 .speech-scrim .switch-meter i,
 .speech-setting-meter i { transition: width 0.4s ease; }
@@ -9894,6 +9943,33 @@ html[data-shell="desktop"] .settings-title {
 
 .routine-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0 0 22px; padding: 0; list-style: none; }
 
+.routine-group-head { display: flex; align-items: center; gap: 4px; margin: 0 0 8px; }
+
+.routine-group-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px 0 4px;
+  border-radius: 10px;
+  text-align: left;
+  color: var(--text);
+}
+
+.routine-group-toggle:hover { background: var(--hover); }
+.routine-group-chevron { flex: none; color: var(--faint); transition: transform 120ms ease; }
+.routine-group-toggle.is-closed .routine-group-chevron { transform: rotate(-90deg); }
+.routine-group-name { flex: none; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.routine-group-count { flex: none; padding: 0 7px; border-radius: 999px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--faint); font-size: 12px; }
+.routine-group-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 12.5px; }
+.routine-group-summary { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12.5px; font-weight: 550; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .routine-group-chevron { transition: none; }
+}
+
 .routine-row,
 .routines-empty,
 .routines-settings {
@@ -9935,8 +10011,8 @@ html[data-shell="desktop"] .settings-title {
 
 .routine-status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-weight: 550; }
 .routine-status > span:last-child { overflow: hidden; text-overflow: ellipsis; }
-:is(.routine-status, .routine-run-state).is-waiting { color: var(--attention); }
-:is(.routine-status, .routine-run-state).is-failed { color: var(--danger); }
+:is(.routine-status, .routine-run-state, .routine-group-summary).is-waiting { color: var(--attention); }
+:is(.routine-status, .routine-run-state, .routine-group-summary).is-failed { color: var(--danger); }
 
 .routine-actions { flex: none; display: flex; align-items: center; gap: 8px; }
 .routine-actions button.text-button { height: 30px; padding: 0 12px; font-size: 12.5px; }

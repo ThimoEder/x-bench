@@ -142,15 +142,17 @@ export function TaskControl({ session, onEnd }: TaskControlProps) {
                             <TaskText task={task} />
                           </span>
                         )}
-                        <button
-                          type="button"
-                          className="task-end"
-                          data-testid="task-end"
-                          disabled={ending}
-                          onClick={() => end(task)}
-                        >
-                          {ending ? (task.agent ? "Stopping…" : "Ending…") : task.agent ? "Stop" : "End"}
-                        </button>
+                        {task.canStop !== false && (
+                          <button
+                            type="button"
+                            className="task-end"
+                            data-testid="task-end"
+                            disabled={ending}
+                            onClick={() => end(task)}
+                          >
+                            {ending ? (task.agent ? "Stopping…" : "Ending…") : task.agent ? "Stop" : "End"}
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>

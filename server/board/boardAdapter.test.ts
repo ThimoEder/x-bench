@@ -1363,8 +1363,8 @@ test("responseJson reads a body as JSON and an empty or broken body as null", as
 test("SAK's refusal of a file reads plainly", async () => {
   const connection = { baseUrl: "http://127.0.0.1:4345", token: "sak_contract", enabled: true, database: "", website: "" };
   const refusals: [number, string, string][] = [
-    [415, "unsupported_media_type", "SAK takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips"],
-    [413, "too_large", "SAK takes pictures up to 20 MiB and clips up to 100 MiB"],
+    [415, "unsupported_media_type", "The local board takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips"],
+    [413, "too_large", "The local board takes pictures up to 20 MiB and clips up to 100 MiB"],
   ];
   for (const [status, error, message] of refusals) {
     const fetchImpl: BoardFetch = async () => reply({ status, body: { error } });

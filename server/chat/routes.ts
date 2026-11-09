@@ -24,7 +24,7 @@ import type { GoneFolder } from "../folder/goneFolder.ts";
 import { route, type Route } from "../router.ts";
 import { Cwd, Maybe, SessionBody, RequestId, SessionId, Text } from "../bodies.ts";
 import { latestMain } from "../git/branch.ts";
-import { appWorktreeOf, removeChatWorktree } from "../git/worktree.ts";
+import { appWorktreeOf, removeChatWorktree, worktreeChanges } from "../git/worktree.ts";
 import { deskGuard } from "../routeGuard.ts";
 import { contextWindows } from "./context.ts";
 import { withHandoff } from "./handoff.ts";
@@ -488,9 +488,18 @@ export function sessionRoutes(host: Host): Route[] {
     route({
       method: "POST",
       path: "/api/delete",
-      body: z.object({ sessionId: SessionId, worktree: z.boolean().optional() }),
+      body: z.object({ sessionId: SessionId, worktree: z.boolean().optional(), discard: z.boolean().optional() }),
       async handle({ res, body }) {
         const { sessionId } = body;
+        const listed = [...store.snapshot.projects.flatMap((project) => project.sessions), ...store.snapshot.chats].find((session) => session.id === sessionId);
+        const worktreeRoot = canonicalCwd(paths.worktrees);
+        // A routine run stays out of the sidebar, so its record names its worktree.
+        const worktree = body.worktree !== true ? null : listed?.ownWorktree ? appWorktreeOf(listed.cwd, worktreeRoot) : host.routines.worktreeOf(sessionId);
+        const changes = worktree && !body.discard ? await worktreeChanges(worktree, sessionId, host.chatRows(), worktreeRoot) : null;
+        if (changes) {
+          sendJson(res, 200, { changes });
+          return;
+        }
         // A switch still running would write the chat back. It stops first, or finishes if it is past undoing, and
         // the messages held for it go nowhere.
         const run = store.switching.get(sessionId);
@@ -499,10 +508,6 @@ export function sessionRoutes(host: Host): Route[] {
           if (!run.view.committing) cancelSwitch(sessionId, run);
           await run.done?.catch(() => {});
         }
-        const listed = [...store.snapshot.projects.flatMap((project) => project.sessions), ...store.snapshot.chats].find((session) => session.id === sessionId);
-        const worktreeRoot = canonicalCwd(paths.worktrees);
-        // A routine run stays out of the sidebar, so its record names its worktree.
-        const worktree = body.worktree !== true ? null : listed?.ownWorktree ? appWorktreeOf(listed.cwd, worktreeRoot) : host.routines.worktreeOf(sessionId);
         const provider = holderOf(sessionId);
         const liveHarness = providers.ids.toHarness(sessionId);
         const earlier = [...new Map((chatRecords.get(sessionId)?.stretches ?? []).map((stretch) => [stretch.harnessId, stretch])).values()].filter(
@@ -558,7 +563,7 @@ export function sessionRoutes(host: Host): Route[] {
           // A suggestions file that does not read keeps the entry. The session is gone either way.
         }
         // Another chat can start in the worktree while the harness deletes this one.
-        if (worktree) kept = [kept, await removeChatWorktree(worktree, sessionId, host.chatRows(), worktreeRoot)].filter(Boolean).join(" ");
+        if (worktree) kept = [kept, await removeChatWorktree(worktree, sessionId, host.chatRows(), worktreeRoot, body.discard)].filter(Boolean).join(" ");
         host.routines.sessionDeleted(sessionId);
         changeSidebar((state) => dropSession(state, sessionId));
         const tickets = readTickets(paths.tickets);

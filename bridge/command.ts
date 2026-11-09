@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { adapterEnvironment } from "./adapter.ts";
 
 // The first line of `<command> --version`, or null when the command does not run.
 export function commandVersion(command: string, args: string[] = ["--version"]): Promise<string | null> {
@@ -16,11 +17,10 @@ export function commandVersion(command: string, args: string[] = ["--version"]):
   });
 }
 
-// What `<command> <args>` prints, or null when it does not run. The command gets the user's
-// environment plus extra.
+// What `<command> <args>` prints, or null when it does not run.
 export function commandOutput(command: string, args: string[], extra: NodeJS.ProcessEnv = {}): Promise<string | null> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: 10000, env: { ...process.env, ...extra } }, (error, stdout) => {
+    execFile(command, args, { timeout: 10000, env: adapterEnvironment(extra) }, (error, stdout) => {
       resolve(error ? null : String(stdout));
     });
   });

@@ -10,8 +10,9 @@ import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { branchLabel, devAppName, gitBranch, groupUpdate, hostNote, hostOrigin, importGraph, keepAwakeOf, keepTail, labelArg, listeningPort, logFile, pathCommand, pathFromShell, route, watchedFolders } from "./host.js";
+import { fileURLToPath } from "node:url";
+import { appPageUrl, registerAppScheme, serveAppPages } from "./appPages.js";
+import { branchLabel, devAppName, gitBranch, groupUpdate, hostNote, hostOrigin, importGraph, keepAwakeOf, keepTail, labelArg, listeningPort, logFile, envCommand, envFromShell, hostShellEnv, loginShellEnv, route, watchedFolders } from "./host.js";
 import { createBrowserPane } from "./browser/browser.js";
 import { createUnityView } from "./unity/unityView.js";
 import { createRailTip } from "./railTip.js";
@@ -42,9 +43,7 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 // bundle from desktop/bundle-host.js on the page `vite build` wrote.
 const hostEntry = fileURLToPath(new URL(app.isPackaged ? "../dist/host/index.mjs" : "../server/index.ts", import.meta.url));
 const builtUi = fileURLToPath(new URL("../dist/ui", import.meta.url));
-const errorPage = fileURLToPath(new URL("error.html", import.meta.url));
-const errorPageUrl = pathToFileURL(errorPage).href;
-const launchPage = fileURLToPath(new URL("launch.html", import.meta.url));
+const errorPageUrl = appPageUrl("error.html");
 // The packaged app's icon comes from electron-builder. From a checkout the Dock
 // shows the icon with an amber corner.
 const devIcon = fileURLToPath(new URL("build/icon-dev.png", import.meta.url));
@@ -76,9 +75,8 @@ let listening = false;
 let failure = null;
 let output = "";
 let stopping = null;
-let loginPath = null;
-// The login shell while its PATH is being read, and whether the app quits.
-let pathShell = null;
+let loginEnv = null;
+let envShell = null;
 let quitting = false;
 // Grok groups the app is stopping after their host exited.
 const reaping = new Set();
@@ -126,6 +124,7 @@ if (!app.isPackaged) {
 // The agent keeps working in the browser pane while another window covers the app, so covered windows keep
 // drawing.
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+registerAppScheme();
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -144,6 +143,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     app.userAgentFallback = `${app.userAgentFallback} ${userAgentMark}`;
     if (!app.isPackaged) app.dock?.setIcon(devIcon);
+    serveAppPages();
     guardSession();
     keepTheme();
     handleScreenshots(sameOrigin);
@@ -157,7 +157,7 @@ if (!app.requestSingleInstanceLock()) {
       createWindow();
       return;
     }
-    loginPath = readLoginPath();
+    loginEnv = readLoginEnv();
     if (!app.isPackaged) {
       appPort = await freePort(basePort);
       origin = `http://127.0.0.1:${appPort}`;
@@ -183,9 +183,9 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     pane?.stop();
     unityView?.stop();
-    // A login shell still printing its PATH runs in its own session and
+    // A login shell still printing its environment runs in its own session and
     // would outlive the app.
-    if (pathShell) killGroup(pathShell.pid);
+    if (envShell) killGroup(envShell.pid);
     if (!host && !reaping.size) return;
     event.preventDefault();
     (host ? stopHost() : Promise.resolve()).then(() => Promise.all(reaping)).then(() => app.quit());
@@ -217,36 +217,35 @@ function portFree(port) {
   });
 }
 
-// An app opened from Finder does not get the shell's PATH, so read it from
-// the login shell once and hand it to the host. Profiles can wait on stdin or
-// leave subshells running, and an interactive shell ignores SIGTERM, so stdin
-// is empty, the PATH counts as soon as it is printed, and after 5 seconds the
-// shell's whole process group is killed and the app keeps its own PATH.
-function readLoginPath() {
+// An app opened from Finder lacks the shell profile's environment. Profiles can wait on stdin or leave subshells
+// running, and an interactive shell ignores SIGTERM, so stdin is empty and the shell's whole group gets SIGKILL
+// once the environment is printed or after 5 seconds. The environment holds the user's secrets and is never logged.
+function readLoginEnv() {
   return new Promise((resolve) => {
     let output = "";
     let done = false;
-    const shell = spawn(process.env.SHELL || "/bin/zsh", ["-ilc", pathCommand()], {
+    const shell = spawn(process.env.SHELL || "/bin/zsh", ["-ilc", envCommand()], {
       stdio: ["ignore", "pipe", "ignore"],
       detached: true,
+      env: loginShellEnv(process.env),
     });
-    pathShell = shell;
-    const finish = (path) => {
+    envShell = shell;
+    const finish = (env) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      pathShell = null;
+      envShell = null;
       killGroup(shell.pid);
-      resolve(path ?? process.env.PATH ?? "");
+      resolve(env);
     };
     const timer = setTimeout(() => finish(null), 5000);
     shell.stdout.on("data", (chunk) => {
       output += chunk;
-      const path = pathFromShell(output);
-      if (path) finish(path);
+      const env = envFromShell(output);
+      if (env) finish(env);
     });
     shell.on("error", () => finish(null));
-    shell.on("close", () => finish(pathFromShell(output)));
+    shell.on("close", () => finish(envFromShell(output)));
   });
 }
 
@@ -254,7 +253,7 @@ async function startHost() {
   listening = false;
   failure = null;
   output = "";
-  const PATH = await loginPath;
+  const shellEnv = await loginEnv;
   if (quitting) return;
   const built = app.isPackaged ? { X_BENCH_UI: "dist", X_BENCH_UI_DIR: builtUi } : {};
   // The host starts and stops SAK, because Setup talks to the host. The
@@ -281,11 +280,11 @@ async function startHost() {
     // New sessions start in this folder.
     cwd: app.isPackaged ? home : repoRoot,
     stdio: "pipe",
-    env: { ...sak, ...simHelper, ...routineEnv, ...process.env, ...built, PATH, HOME: home, PORT: String(appPort), VITE_X_BENCH_LABEL: label },
+    env: { ...sak, ...simHelper, ...routineEnv, ...process.env, ...built, ...hostShellEnv(shellEnv, process.env), HOME: home, PORT: String(appPort), VITE_X_BENCH_LABEL: label },
   });
   host = child;
   if (sealKey === undefined) sealKey = app.isPackaged ? secretKey(path.join(home, ".x-bench", "secret-key"), safeStorage) : null;
-  child.postMessage({ type: "secret-key", key: sealKey, dev: !app.isPackaged });
+  child.postMessage({ type: "start", key: sealKey, dev: !app.isPackaged, shellEnv });
   const adapters = createAdapterRelay({
     fork: (...args) => utilityProcess.fork(...args),
     root: repoRoot,
@@ -530,12 +529,12 @@ function render(window) {
   if (!contents) return;
   if (attached || listening) contents.loadURL(origin);
   else if (failure) showError(contents, { ...failure, output });
-  else contents.loadFile(launchPage, { query: launchTheme() });
+  else contents.loadURL(appPageUrl("launch.html", launchTheme()));
 }
 
 function showError(contents, query) {
   pane?.hide();
-  contents.loadFile(errorPage, { query });
+  contents.loadURL(appPageUrl("error.html", query));
 }
 
 function failPage(window, reason) {
@@ -575,7 +574,7 @@ function restartHost(window) {
     return;
   }
   pane?.hide();
-  pages.get(window)?.webContents.loadFile(launchPage, { query: launchTheme() });
+  pages.get(window)?.webContents.loadURL(appPageUrl("launch.html", launchTheme()));
   const stuck = host;
   host = null;
   if (stuck) kill(stuck);

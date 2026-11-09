@@ -368,6 +368,18 @@ test("a saved update log fills the open chat without marking it as our turn", as
   }
 });
 
+test("a saved update log leaves the board rules tag out of the transcript", async () => {
+  const { bridge } = fakeBridge(quietNew);
+  try {
+    await bridge.start();
+    await bridge.createSession({ cwd: "/tmp/proj" });
+    const replayed = bridge.replaySessionLog("s1", [note("user_message_chunk", "<x-bench-board-rules>\nMove tickets.\n</x-bench-board-rules>\n\nhello")]);
+    assert.deepEqual(replayed?.transcript.map((item) => item.text), ["hello"]);
+  } finally {
+    await bridge.stop();
+  }
+});
+
 test("an open chat keeps its live turn when opened again", async () => {
   const { bridge, transports } = fakeBridge(heldSession);
   try {

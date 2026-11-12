@@ -1087,7 +1087,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
       ) : null}
       {threadFor ? (
         <ThreadSheet
-          cwd={cwd}
+          cwd={textOf(board.folder) || cwd}
           taskId={threadFor.id}
           title={ticketName(board, threadFor)}
           call={call}

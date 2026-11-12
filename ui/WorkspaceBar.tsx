@@ -52,9 +52,9 @@ export function WorkspaceBar({ view, boardName, draftCwd, drafting, solo, chatti
             {boardName ? <span className="bar-title-sub">{` · ${boardName}`}</span> : null}
           </p>
         </div>
-      ) : view.page === "routines" ? (
+      ) : view.page === "routines" || view.page === "needs" ? (
         <div className="bar-heading">
-          <p className="bar-title">Routines</p>
+          <p className="bar-title">{view.page === "needs" ? "Needs you" : "Routines"}</p>
         </div>
       ) : drafting ? (
         <div className="bar-heading">

@@ -40,6 +40,7 @@ X Bench is a Mac app around the coding agent you already use. It drives Grok Bui
 - **iOS simulators and Android emulators** streamed live, which the agent builds for, taps and reads.
 - **Terminal** in the session folder that keeps running while you switch chats.
 - **Routines** that run a prompt on a schedule, each run in a fresh chat, grouped by project.
+- **Needs you**, one list of every chat that waits on a permission, a question or a plan, answered in place.
 - **Dictation** with an on-device speech model.
 - **Your phone** as a remote over ngrok or the local network.
 

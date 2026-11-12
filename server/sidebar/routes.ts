@@ -16,7 +16,7 @@ import { Cwd, Maybe, SessionBody, SessionId, Text } from "../bodies.ts";
 const SessionIds = z.array(SessionId).default([]);
 
 export function sidebarRoutes(host: Host): Route[] {
-  const { store, publish, presentedOpen, catalogSnapshot, safeSessions, changeSidebar } = host;
+  const { store, publish, presentedOpen, catalogSnapshot, activity, safeSessions, changeSidebar } = host;
 
   function changeFolders(res: ServerResponse, change: (state: SidebarState) => SidebarState) {
     changeSidebar(change);
@@ -123,7 +123,7 @@ export function sidebarRoutes(host: Host): Route[] {
           return;
         }
         changeSidebar((state) => renameSession(state, sessionId, title));
-        publish({ open: presentedOpen(), sessions: safeSessions(store.snapshot.cwd), ...catalogSnapshot() });
+        publish({ open: presentedOpen(), sessions: safeSessions(store.snapshot.cwd), ...catalogSnapshot(), ...activity() });
         sendJson(res, 200, { ok: true });
       },
     }),

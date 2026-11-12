@@ -10,7 +10,7 @@ import { DragGhost, ProjectSection } from "./ProjectSection.tsx";
 import { isGroup, shownRows } from "./projectRows.ts";
 import type { ProjectRow } from "./projectRows.ts";
 import { RemoteDot } from "./RemoteDot.tsx";
-import { Brand, RoutinesButton, SearchRow, SurfaceSwitch, useSearch } from "./SidebarHead.tsx";
+import { Brand, NeedsYouButton, RoutinesButton, SearchRow, SurfaceSwitch, useSearch } from "./SidebarHead.tsx";
 import { useChatDrop, useDeleting, useMenu, useRename } from "./sidebarList.ts";
 import type { SidebarList } from "./sidebarList.ts";
 import { useSidebarProvider } from "./sidebarProvider.ts";
@@ -32,6 +32,7 @@ export interface SidebarProps {
     // The page's first snapshot has no providers yet.
     providers?: ProviderView[];
     routines?: RoutinesView;
+    needsYou?: readonly unknown[];
   };
   busy: boolean;
   onNew: () => void;
@@ -48,6 +49,8 @@ export interface SidebarProps {
   onToggleArchived?: () => void;
   onOpenRoutines?: () => void;
   routinesOpen?: boolean;
+  onOpenNeeds?: () => void;
+  needsOpen?: boolean;
   showArchived: boolean;
   draftCwd?: string | null;
   open: boolean;
@@ -60,7 +63,7 @@ export interface SidebarProps {
   phone?: boolean;
 }
 
-export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, onChat, onStartChat, onSurface, onOpenProject, onCreateBoard, onRemoveBoard, onOpenSetup, onOpenRemote, onToggleArchived, onOpenRoutines, routinesOpen, showArchived, draftCwd, open, width, onCollapse, call, shownIds, phone = false }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, onChat, onStartChat, onSurface, onOpenProject, onCreateBoard, onRemoveBoard, onOpenSetup, onOpenRemote, onToggleArchived, onOpenRoutines, routinesOpen, onOpenNeeds, needsOpen, showArchived, draftCwd, open, width, onCollapse, call, shownIds, phone = false }: SidebarProps) {
   const rootRef = useRef<HTMLElement | null>(null);
   const [updates] = useState(updateBridge);
   const waitingUpdate = useWaitingUpdate(updates);
@@ -157,6 +160,7 @@ export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, on
       <div className="sidebar-inner">
         <Brand surface={surface} onSurface={onSurface} phone={phone} onCollapse={onCollapse} />
         {onOpenRoutines ? <RoutinesButton routines={snapshot.routines} runIds={runIds} unread={unread} open={Boolean(routinesOpen)} onOpen={onOpenRoutines} /> : null}
+        {onOpenNeeds ? <NeedsYouButton count={snapshot.needsYou?.length ?? 0} open={Boolean(needsOpen)} onOpen={onOpenNeeds} /> : null}
         <SearchRow search={search} chatting={chatting} busy={busy} onNew={() => (chatting ? onStartChat?.() : onNew())} />
         <div
           className="sidebar-scroll"

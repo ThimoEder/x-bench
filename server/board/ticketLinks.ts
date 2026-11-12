@@ -60,7 +60,7 @@ export function sessionForLink(services: LinkServices, sessionId: unknown, folde
   throw boardError(400, "No chat is working in this folder");
 }
 
-// The board rules have an agent send its chat's id with a link, since several chats can work in one folder.
+// A chat's id for the sessionId of /api/board/links, which names one of several chats working in a folder.
 export function chatIdTools(): McpGroup {
   return {
     instructions: "",

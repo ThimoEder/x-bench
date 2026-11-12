@@ -328,6 +328,42 @@ test("a step whose subagent is not in the transcript stays in the chat", async (
   assert.match(container.textContent ?? "", /Read 1 file/);
 });
 
+test("back-to-back calls of one tool share a row, and a thought ends the run", async () => {
+  const log = (id: string, lines: number) => tool({ toolCallId: id, title: "mcp__aym__get_log", rawInput: { lines } });
+  const container = await render([
+    log("log-1", 50),
+    log("log-2", 50),
+    log("log-3", 200),
+    { id: "thought-1", type: "thought", text: "Look again.", streaming: false },
+    log("log-4", 50),
+    tool({ toolCallId: "link-1", title: "mcp__aym__open_deeplink" }),
+  ]);
+  const labels = [...container.querySelectorAll("[data-testid=activity] summary .activity-label")].map((label) => label.textContent);
+  assert.deepEqual(labels.filter((label) => !label?.startsWith("Thought")), ["mcp__aym__get_log × 3", "mcp__aym__get_log", "mcp__aym__open_deeplink"]);
+  assert.equal(labels.length, 4);
+  const inputs = [...container.querySelectorAll(".repeat-inputs li")].map((line) => line.textContent);
+  assert.deepEqual(inputs, ['{"lines":50} × 2', '{"lines":200}']);
+});
+
+test("two tools with the same plain label keep their own rows", async () => {
+  const container = await render([
+    tool({ toolCallId: "page-shot", title: "mcp__x_bench__browser_screenshot", rawInput: {} }),
+    tool({ toolCallId: "device-shot", title: "mcp__x_bench__simulator_screenshot", rawInput: {} }),
+  ]);
+  const labels = [...container.querySelectorAll("[data-testid=activity] summary .activity-label")].map((label) => label.textContent);
+  assert.deepEqual(labels, ["Take a screenshot", "Take a screenshot"]);
+});
+
+test("an opened tool row stays open when the next call of the tool joins it", async () => {
+  const log = (id: string, status: "completed" | "in_progress") => tool({ toolCallId: id, title: "mcp__aym__get_log", rawInput: { lines: 50 }, status });
+  const { container, update } = await renderLive([log("log-1", "completed")]);
+  const row = () => container.querySelector("[data-testid=activity] details") as HTMLDetailsElement;
+  row().open = true;
+  await update([log("log-1", "completed"), log("log-2", "in_progress")]);
+  assert.equal(row().querySelector(".activity-label")?.textContent, "mcp__aym__get_log × 2");
+  assert.equal(row().open, true);
+});
+
 test("thinking shows its newest sentences, starting at a sentence", async () => {
   const thought = "First I list the desks. Ana must sit at an end. " + "Ben is two right of Vim, so Vim is at desk one, two or three. ".repeat(4) + "So Ben sits at desk four or five.";
   const container = await render([

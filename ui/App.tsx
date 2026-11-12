@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SidebarProject, SidebarSession } from "../server/snapshot.ts";
+import type { ComposerCatalog, SidebarProject, SidebarSession } from "../server/snapshot.ts";
 import { AboutButton } from "./about/About.tsx";
 import { CreateBoard } from "./board/CreateBoard.tsx";
 import { BoardPage } from "./board/BoardPage.tsx";
@@ -14,11 +14,12 @@ import { DockSlot } from "./dock/DockSlot.tsx";
 import { deskWithOpening, sessionsForDesk, withFirstMessage, type ShownSession } from "./dock/deskView.ts";
 import { PaneBoundary } from "./dock/PaneBoundary.tsx";
 import { useDock } from "./dock/useDock.ts";
-import { remotePage } from "./launchToken.ts";
-import { useNavigation } from "./navigation.ts";
+import { remotePage, type ApiCall } from "./launchToken.ts";
+import { NEEDS, useNavigation, type View } from "./navigation.ts";
 import { Onboarding } from "./onboarding/Onboarding.tsx";
 import { dropTapsOnRoot } from "./phone/sheetTaps.ts";
 import { usePanelDrags } from "./phone/usePanelDrags.ts";
+import { NeedsYou } from "./needs/NeedsYou.tsx";
 import { Routines } from "./routines/Routines.tsx";
 import { composerRoutine } from "./routines/routineLink.ts";
 import { useNotices } from "./ServiceNotices.tsx";
@@ -30,7 +31,7 @@ import { useDeskActions } from "./useDeskActions.ts";
 import { useLayout } from "./useLayout.ts";
 import { useMediaMatch } from "./useMediaMatch.ts";
 import { usePresence } from "./usePresence.ts";
-import { useSnapshot } from "./useSnapshot.ts";
+import { useSnapshot, type PageSnapshot } from "./useSnapshot.ts";
 import { SpeechModel } from "./voice/SpeechModel.tsx";
 import { WorkspaceBar } from "./WorkspaceBar.tsx";
 
@@ -142,10 +143,11 @@ export function App() {
             busy={draft.busy}
             draftCwd={draft.draft?.cwd || ""}
             routinesOpen={view.page === "routines"}
+            needsOpen={view.page === "needs"}
             shownIds={draft.drafting ? NO_IDS : shownIds}
             phone={phone}
             layout={layout}
-            actions={{ ...actions, openDraft: draft.openDraft, startChat: draft.startChat, createBoard: ({ cwd, name }) => actions.setCreateBoard({ cwd, name }), showRoutines: () => actions.showRoutines() }}
+            actions={{ ...actions, openDraft: draft.openDraft, startChat: draft.startChat, createBoard: ({ cwd, name }) => actions.setCreateBoard({ cwd, name }), showRoutines: () => actions.showRoutines(), showNeeds: actions.showNeeds }}
           />
           <div className={layout.reaching ? "workspace reaching" : "workspace"} ref={layout.observeWorkspace}>
             <div className="desk-column">
@@ -190,25 +192,7 @@ export function App() {
                   onSelect={actions.selectTask}
                 />
               ) : null}
-              {view.page === "routines" ? (
-                <PaneBoundary label="Routines">
-                  <Routines
-                    routines={snapshot.routines}
-                    app={snapshot.app}
-                    projects={snapshot.projects || []}
-                    catalog={catalog}
-                    providers={snapshot.providers || []}
-                    {...(snapshot.platform ? { platform: snapshot.platform } : {})}
-                    call={call}
-                    unread={snapshot.unread || []}
-                    onOpenRun={(run, chat) => {
-                      if (run.sessionId && run.cwd) actions.openRun(run.sessionId, run.cwd, chat).catch(() => {});
-                    }}
-                    seed={actions.routineSeed}
-                    onSeedApplied={actions.clearRoutineSeed}
-                  />
-                </PaneBoundary>
-              ) : null}
+              <CoverPage view={view} snapshot={snapshot} catalog={catalog} call={call} actions={actions} />
             </div>
             {dockFocus ? <DockSlot session={dockFocus} open={slotOpen} layout={layout} dock={dock} snapshot={snapshot} phone={phone} railHost={railHost} /> : null}
           </div>
@@ -251,5 +235,49 @@ export function App() {
         ) : null}
       </div>
     </DeskContext>
+  );
+}
+
+interface CoverPageProps {
+  view: View;
+  snapshot: PageSnapshot;
+  catalog: ComposerCatalog;
+  call: ApiCall;
+  actions: ReturnType<typeof useDeskActions>;
+}
+
+function CoverPage({ view, snapshot, catalog, call, actions }: CoverPageProps) {
+  if (view.page === "routines") {
+    return (
+      <PaneBoundary label="Routines">
+        <Routines
+          routines={snapshot.routines}
+          app={snapshot.app}
+          projects={snapshot.projects || []}
+          catalog={catalog}
+          providers={snapshot.providers || []}
+          {...(snapshot.platform ? { platform: snapshot.platform } : {})}
+          call={call}
+          unread={snapshot.unread || []}
+          onOpenRun={(run, chat) => {
+            if (run.sessionId && run.cwd) actions.openRun(run.sessionId, run.cwd, chat).catch(() => {});
+          }}
+          seed={actions.routineSeed}
+          onSeedApplied={actions.clearRoutineSeed}
+        />
+      </PaneBoundary>
+    );
+  }
+  if (view.page !== "needs") return null;
+  return (
+    <PaneBoundary label="Needs you">
+      <NeedsYou
+        waits={snapshot.needsYou || []}
+        tickets={snapshot.tickets}
+        providers={snapshot.providers || []}
+        call={call}
+        onOpenChat={(wait) => void actions.openRun(wait.sessionId, wait.cwd, wait.chat, NEEDS).catch(() => {})}
+      />
+    </PaneBoundary>
   );
 }

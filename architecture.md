@@ -243,7 +243,7 @@ The guard matters because agents run with broad permissions on the same machine.
 | The body is JSON. | `400 Request body is not JSON` |
 | The JSON body passes the route's schema. | `400 <field>: <first issue>` |
 
-The launch token (`server/launchToken.ts`) is new on every start. The host writes it into the page as `<meta name="x-bench-token">` and to `~/.x-bench/launch-token-<port>` (mode 0600), where scripts and agents read it:
+The launch token (`server/launchToken.ts`) is new on every start. The host writes it into the page as `<meta name="x-bench-token">` and to `~/.x-bench/launch-token-<port>` (mode 0600), where scripts read it:
 
 ```bash
 curl -s -H "X-Bench-Token: $(cat ~/.x-bench/launch-token-8787)" http://127.0.0.1:8787/api/board/tasks/100
@@ -255,7 +255,7 @@ Board tokens and the ngrok authtoken are stored sealed (`server/secrets/secrets.
 
 Each route that reads a JSON body names a Zod schema in `Route.body`, and `route()` in `server/router.ts` types the handler's `body` from it. The schemas several groups share, such as `SessionId` and `Cwd`, live in `server/bodies.ts`. The MCP endpoint, recordings and ticket file uploads are `raw` routes that read their own bodies.
 
-A route that acts on a session goes through `server/routeGuard.ts`: the session must be on the desk (or be a new chat's first message), and review routes refuse a chat whose folder is gone.
+A route that acts on a session goes through `server/routeGuard.ts`: the session must be on the desk (or be a new chat's first message), and review routes refuse a chat whose folder is gone. The answers to a permission, a question and a plan also reach a chat off the desk while it is in the snapshot's `needsYou` list.
 
 | Routes | Module |
 | --- | --- |
@@ -286,6 +286,7 @@ A route that acts on a session goes through `server/routeGuard.ts`: the session 
 | `projects`, `chats` | Sidebar rows: projects with their chats, and the chat surface's list. |
 | `sessions` | Recent sessions in the current folder. |
 | `working`, `attention`, `unread` | Sidebar marks. |
+| `needsYou` | Every permission, question and plan a loaded chat waits on, the longest wait first, with the chat's title, folder and the request as its card draws it (`server/needs/needsYou.ts`). Chats off the desk and routine runs are in it. |
 | `tickets` | Folders bound to a board, and the tickets linked to each session. |
 | `usage`, `notices`, `composer` | Usage meters, service notices, every provider's models. |
 | `terminals` | Each session's shells: name, whether a command runs, exit code. |
@@ -329,12 +330,13 @@ flowchart LR
   end
   Board["ProjectBoard covers the desk"] -.-> Desk
   Routines["Routines page covers the desk"] -.-> Desk
+  Needs["Needs you page covers the desk"] -.-> Desk
   Settings["Settings, CreateBoard overlays"] -.-> shell
 ```
 
 `ui/main.tsx` mounts `App`, which holds its state in one hook per job. `useSnapshot` (`ui/useSnapshot.ts`) opens one `EventSource("/api/events?changes=1")`, merges each partial into its copy of the snapshot and stores it through `shareEqual` (`ui/shareEqual.ts`), which reuses every unchanged object so memoised rows skip re-rendering. `useCall` (`ui/useCall.ts`) sends every call through `apiFetch` with the launch token (`ui/launchToken.ts`) and keeps the banner's error. `useLayout` (`ui/useLayout.ts`) holds the widths, what shows and the drags that resize them, `useDraftSession` (`ui/chat/useDraftSession.ts`) a new session from its draft until the host lists it, and `useDock` (`ui/dock/useDock.ts`) the ways into the focused chat's dock. `useDeskActions` (`ui/useDeskActions.ts`) moves between pages and chats. `App` composes the regions: `WorkspaceBar.tsx`, `sidebar/SidebarColumn.tsx`, `chat/DeskPanes.tsx`, `board/BoardPage.tsx` and `dock/DockSlot.tsx`. The panes on the desk read that call, the snapshot's notices, tickets and projects, and the desk's actions from `DeskContext` (`ui/deskContext.ts`). The page opens two WebSockets: the terminal stream and the device stream.
 
-What covers the desk lives in one view (`ui/navigation.ts`): the desk itself, a folder's board or Routines, with Settings as an overlay. The address mirrors it, so a reload or Back lands on the same page.
+What covers the desk lives in one view (`ui/navigation.ts`): the desk itself, a folder's board, Routines or Needs you, with Settings as an overlay. The address mirrors it, so a reload or Back lands on the same page.
 
 A new session starts as a client-only draft. Sending it posts `/api/session`, then `/api/prompt`, after `/api/folder/worktree` when the worktree box is ticked. A draft left while it sends opens in the background. Layout, preferences and each chat's dock live in `localStorage` under `x-bench-*` keys.
 
@@ -351,6 +353,7 @@ Colours are variables in `ui/styles.css`, one set per theme and appearance, pick
 | `git/`, `folder/`, `terminal/`, `browser/`, `devices/`, `unity/` | The dock's tabs. |
 | `board/ProjectBoard.tsx`, `board/TicketDetail.tsx` | A folder's board and an open ticket. |
 | `routines/Routines.tsx`, `routines/RoutineEditor.tsx` | The Routines page and the routine editor. |
+| `needs/NeedsYou.tsx` | The Needs you page: one row per request in `needsYou`, which opens to the chat's own permission, question or plan card and to Open chat. The sidebar's Needs you row counts them. |
 | `updater/UpdateCard.tsx` | Checking for and installing an update, from the settings gear in the sidebar's footer, and the waiting version that puts a dot on the gear. |
 | `about/About.tsx` | The About window, from the info button at the rail's foot. |
 | `licenses/LicensesPage.tsx` | Open Source Licenses at `/licenses`, from About. `licenses/licenses.ts` writes its list to `licenses.json` when Vite builds the page: the production packages electron-builder ships, the packages whose code ends up in the UI and host bundles, Electron, and vendored code. The dev server builds the page in memory for it. The desktop app opens it in its own window (`desktop/licenses/licensesWindow.js`). |
@@ -373,6 +376,7 @@ flowchart TB
     Plan["update_plan"]
     Suggest["suggest_task"]
     ChatId["chat_id"]
+    BoardTools["board_*"]
     Browser["browser_*"]
     Sim["simulator_*"]
     PR["pr_status"]
@@ -406,13 +410,15 @@ The dock belongs to the focused builder pane. Its work runs in the host (`server
 - **Files** is a tree of the session folder with a preview. A Markdown file switches between source and a rendered preview, here and in Changes.
 - **Terminal**, **Browser**, **Device** and **Unity** are below.
 
-The rail stays outside the dock, at the window's right edge, so it shows while the dock is closed: `App.tsx` renders its slot and the dock portals the rail into it. The slot holds About (`about/About.tsx`) at the rail's foot. In Builder the slot stays up without a chat, with the tabs greyed out. A board or the Routines page takes the rail's place. Menus hide the native Browser and Unity views wherever they overlap them. Before the Browser view steps aside, the page lays a capture of it (`browser:freeze`) in the slot, so the menu draws over a still of the page. On a phone the rail is a row of tabs on top of the full-screen dock, which shows one pane and keeps a saved split for a wider screen. A rail icon dragged onto an edge of the dock opens its surface in a second pane there. Dropped on a pane, it replaces that pane, and a pane's head dropped on the rail closes it.
+The rail stays outside the dock, at the window's right edge, so it shows while the dock is closed: `App.tsx` renders its slot and the dock portals the rail into it. The slot holds About (`about/About.tsx`) at the rail's foot. In Builder the slot stays up without a chat, with the tabs greyed out. A board, the Routines page or the Needs you page takes the rail's place. Menus hide the native Browser and Unity views wherever they overlap them. Before the Browser view steps aside, the page lays a capture of it (`browser:freeze`) in the slot, so the menu draws over a still of the page. On a phone the rail is a row of tabs on top of the full-screen dock, which shows one pane and keeps a saved split for a wider screen. A rail icon dragged onto an edge of the dock opens its surface in a second pane there. Dropped on a pane, it replaces that pane, and a pane's head dropped on the rail closes it.
 
 The shelf over the composer shows the branch and the pull request. Its branch menu runs `git checkout <ref> --`, so a name is never read as a path, and is refused while a turn runs in the same checkout. `server/git/pullRequest.ts` runs `gh pr view`, also for a branch whose upstream has another name, and boils it down to one status (merged, conflict, failing, running, ready and others), served to the shelf through `/api/git/pr` and to the agent through `pr_status`.
 
 ### Worktrees
 
-Sending a draft with the worktree box ticked adds a git worktree on a new branch named after the message (`server/git/worktree.ts`) in `~/.x-bench/worktrees/`, and the session starts there. Suggested tasks and board threads use the same code. A worktree without its own board binding uses its checkout's.
+Sending a draft with the worktree box ticked adds a git worktree on a new branch named after the message (`server/git/worktree.ts`) in `~/.x-bench/worktrees/`, and the session starts there. Suggested tasks and board threads use the same code. A worktree without its own board binding uses its checkout's. The board response names the bound folder, and a new chat from the board starts there.
+
+A chat also follows its agent into a worktree the agent enters itself. The provider calls `setSessionCwd` with the session's new folder, which moves the chat's branch, Changes pane, terminal, files and sidebar place there, and the next `session/load` opens the session in that folder. Grok reports the move in `_x.ai/sessions/changed`. For Claude, `bridge/claude/provider.ts` reads the folder from the result of EnterWorktree and ExitWorktree.
 
 Deleting or archiving the only chat in such a worktree offers to remove the worktree too, with `git worktree remove`, which keeps the branch and deletes ignored files such as `.env`. Before it touches the chat, `/api/delete` or `/api/archive` reads the worktree's modified, staged and untracked files (`worktreeChanges`), and answers an error when git cannot read them. When there are any, it answers with them and changes nothing, and `ui/git/WorktreeDiscard.tsx` lists them as the Changes pane does: the person keeps the worktree, or discards the changes, which sends `discard` and removes it with `--force`.
 
@@ -429,8 +435,8 @@ A folder can be bound to one board: a SAK project, a Trello board or a Jira boar
 ```mermaid
 flowchart LR
   Page["ProjectBoard, TicketDetail"] --> R["/api/board/* (alias /api/sak/*)"]
-  Agent["Agent with board rules"] --> R
   R --> Sak["handleBoard (board/board.ts)"]
+  Agent["Agent with board rules"] -->|"board_* tools (board/boardTools.ts)"| Sak
   Sak -->|"folder binding or id shape"| SA["sakAdapter"] --> SAK["SAK on 127.0.0.1:4345"]
   Sak --> TA["trelloAdapter"] --> Trello["api.trello.com"]
   Sak --> JA["jiraAdapter"] --> Jira["Jira Cloud"]
@@ -445,12 +451,13 @@ Capabilities cover notes, labels, label colors, label deletes, labels without a 
 
 Board settings sit on top of what a source sends, per bound folder, in `~/.x-bench/board-settings.json` (`board/boardSettings.ts`, kept by `board/boardSettingsFile.ts`): each column's order, hidden, collapsed and color, and the column each automatic move goes to (new ticket, work starts, pull request, merge). A move without a picked column goes to the first column with one of the names it looks for, such as In Progress or Done. The board load answers them as `settings`, `PUT` and `DELETE /api/board/settings` change them, and a change updates the rules of the folder's open chats. The page applies them in `arrangedBoard` (`ui/board/boardData.ts`) and edits them in a pane that takes the open ticket's dock (`ui/board/BoardSettings.tsx`) and from a column's header, which collapses the column into a strip. A source with `columnColors` paints its own lists, and on the others the color stays in the settings. The rules name a column only when the person picked it in the settings or its name is one a move looks for, and a ticket created without a column goes to the one picked for new tickets.
 
-Every source reads and adds comments at `/api/board/tasks/<id>/comments`, straight from the board with nothing cached, and a ticket read carries them too. The agent rules name both routes. Every source keeps files on a ticket at `/api/board/tasks/<id>/files`, with Trello's and Jira's attachments mapped onto SAK's file shape. An upload is the file's bytes as `application/octet-stream` with `?name=`, up to 100 MiB, held in memory on its way to the source. A read passes its `Range` on, and the host serves the bytes from its own origin with `nosniff` and `Content-Security-Policy: sandbox`, so a file opened there runs no script. The ticket detail draws its description, note and comments as Markdown. An embed of a file's own url, and on a board with `embedsByName` an embed by the file's name (`!shot.png!`), loads from that route (`ui/board/ticketEmbeds.ts`). The ticket's file list tells a clip from a picture, and a clip's route ends in a video extension the route ignores, so it plays in the video player.
+Every source reads and adds comments at `/api/board/tasks/<id>/comments`, straight from the board with nothing cached, and a ticket read carries them too. Every source keeps files on a ticket at `/api/board/tasks/<id>/files`, with Trello's and Jira's attachments mapped onto SAK's file shape. An upload is the file's bytes as `application/octet-stream` with `?name=`, up to 100 MiB, held in memory on its way to the source. A read passes its `Range` on, and the host serves the bytes from its own origin with `nosniff` and `Content-Security-Policy: sandbox`, so a file opened there runs no script. The ticket detail draws its description, note and comments as Markdown. An embed of a file's own url, and on a board with `embedsByName` an embed by the file's name (`!shot.png!`), loads from that route (`ui/board/ticketEmbeds.ts`). The ticket's file list tells a clip from a picture, and a clip's route ends in a video extension the route ignores, so it plays in the video player.
 
-Boards and chats meet in five places:
+Boards and chats meet in six places:
 
-- **Board rules** (`board/boardRules.ts`, each source's own in its `*Source.ts`) go into every new builder session in a bound folder and tell the agent to move tickets through this host's `/api/board/*`. When a folder gets a board, its open chats get the rules through `updateRules` in `bridge/acp.ts`: every harness keeps a session's system prompt from its start, so the rules go with the chat's next plain prompt that starts a turn (a slash command goes unchanged), inside `<x-bench-board-rules>`, which the transcript, the queue and the title leave out. They wait through closing the chat, come back when a prompt fails, and go when the folder loses its board before they are sent.
-- **Links**: an agent reads its own id from the `chat_id` tool and posts `/api/board/links`. Links live in `~/.x-bench/tickets.json` and show as ticket chips in the chat and chats on the ticket. A board load also keeps each linked ticket's column color with its link, the source's own or else the one the board settings keep, so the sidebar colors a chat's bar without loading a board. A link made or a ticket changed between loads takes its color at once: from the board settings, or for a source with its own colors from the columns of the folder's last full load, which the host keeps in memory. Chips and ticket links in a chat read the colors from the board `ui/board/boardCache.ts` keeps.
+- **Board rules** (`board/boardRules.ts`, each source's own in its `*Source.ts`) go into every new builder session in a bound folder and tell the agent to work the board with the board tools, naming each tool and the column each automatic move goes to. When a folder gets a board, its open chats get the rules through `updateRules` in `bridge/acp.ts`: every harness keeps a session's system prompt from its start, so the rules go with the chat's next plain prompt that starts a turn (a slash command goes unchanged), inside `<x-bench-board-rules>`, which the transcript, the queue and the title leave out. They wait through closing the chat, come back when a prompt fails, and go when the folder loses its board before they are sent.
+- **Board tools** (`board/boardTools.ts`): the `x_bench` MCP server offers `board_read`, `board_read_ticket`, `board_create_ticket`, `board_edit_ticket`, `board_move_ticket`, `board_comment`, `board_relate`, `board_attach_file`, `board_files`, `board_read_file`, `board_delete_file` and `board_link_chat`. Each tool hands `handleBoard` the request the page would send, with the calling chat's folder and id, so the folder's binding, every source's adapter and the board settings apply as they do for the page, and the agent holds no launch token. `board_attach_file` reads a path on this machine and `board_delete_file` removes a file for good, so those two ask in the harness's own permission card. `board_read_file` saves the file under the name the board keeps into a new folder in the system's temporary folder and answers its path.
+- **Links**: an agent links its chat with `board_link_chat`, and the page posts `/api/board/links`. Links live in `~/.x-bench/tickets.json` and show as ticket chips in the chat and chats on the ticket. A board load also keeps each linked ticket's column color with its link, the source's own or else the one the board settings keep, so the sidebar colors a chat's bar without loading a board. A link made or a ticket changed between loads takes its color at once: from the board settings, or for a source with its own colors from the columns of the folder's last full load, which the host keeps in memory. Chips and ticket links in a chat read the colors from the board `ui/board/boardCache.ts` keeps.
 - **Done tickets**: a link whose ticket moves from Review to Done gets `cleanup` in `tickets.json`. Once every ticket of the chat is done and its turn has ended, `ui/board/TicketDone.tsx` offers in the composer shelf, below the pull request row, to archive the chat with the worktree it has to itself. Archiving the chat clears `cleanup` in `/api/archive`, and the × clears it through `DELETE /api/board/links/cleanup`.
 - **Board offer**: once the first turn in the first chat of a project without a board has ended, `ui/board/BoardOffer.tsx` shows a card at the end of the chat that opens Create board. Either answer hides it for that project in `localStorage`.
 - **Threads**: `/api/board/threads` starts a chat for a card in the background, optionally in a worktree named after the ticket, and links it.
@@ -460,7 +467,7 @@ Every string in a board API reply, and the board text in the board rules and a t
 
 ### Agent tools (MCP)
 
-The host serves one MCP server, `x_bench`, over Streamable HTTP at `/api/mcp/<key>` (`server/mcp/mcp.ts`). Each `session/new` and `session/load` gets a fresh key that names its session, so every tool call knows its chat. Tool groups plug in their tools and a line for the system prompt: `update_plan` (`server/chat/planTool.ts`), task suggestions, `chat_id`, the browser, the simulators, `pr_status`, chat folders (`server/sidebar/folderTools.ts`) and routines (`server/routines/routineTools.ts`). Chats on the chat surface show no review dock, so their keys offer neither the browser nor the simulator tools, and their prompt leaves out those lines. `update_plan` is experimental: a chat gets it when `planTool` in `~/.x-bench/settings.json` is on as the chat opens (Settings › General › Experimental). It keeps the session's step list in the host (`setPlan` on the ACP client), the same state an ACP `plan` update fills, so the composer shelf and the Plan tab show it and the transcript leaves out its rows. A subagent's call changes nothing, since the plan belongs to the main agent; its tool carries `_meta["anthropic/alwaysLoad"]` so Claude Code lists it upfront instead of behind tool search. While the setting is off, Claude Code starts with its own task tools turned on.
+The host serves one MCP server, `x_bench`, over Streamable HTTP at `/api/mcp/<key>` (`server/mcp/mcp.ts`). Each `session/new` and `session/load` gets a fresh key that names its session, so every tool call knows its chat. Tool groups plug in their tools and a line for the system prompt: `update_plan` (`server/chat/planTool.ts`), task suggestions, `chat_id`, the board (`server/board/boardTools.ts`), the browser, the simulators, `pr_status`, chat folders (`server/sidebar/folderTools.ts`) and routines (`server/routines/routineTools.ts`). Chats on the chat surface show no review dock and have no board, so their keys offer neither the browser, the simulator nor the board tools, and their prompt leaves out those lines. `update_plan` is experimental: a chat gets it when `planTool` in `~/.x-bench/settings.json` is on as the chat opens (Settings › General › Experimental). It keeps the session's step list in the host (`setPlan` on the ACP client), the same state an ACP `plan` update fills, so the composer shelf and the Plan tab show it and the transcript leaves out its rows. A subagent's call changes nothing, since the plan belongs to the main agent; its tool carries `_meta["anthropic/alwaysLoad"]` so Claude Code lists it upfront instead of behind tool search. While the setting is off, Claude Code starts with its own task tools turned on.
 
 ```mermaid
 sequenceDiagram
@@ -647,7 +654,7 @@ Standard: `initialize`, `session/new`, `session/load`, `session/prompt`, `sessio
 | Provider | Extensions |
 | --- | --- |
 | Grok | Turn: `_x.ai/interject`, `_x.ai/queue/{edit,remove,reorder}`, `_x.ai/btw`, `_x.ai/suggestPrompt`, `_x.ai/billing`, `_x.ai/task/kill`. Requests the host answers: `_x.ai/exit_plan_mode`, `_x.ai/ask_user_question`. Notifications: `_x.ai/session/*`, `_x.ai/session_notification`, `_x.ai/queue/changed`, `_x.ai/sessions/changed`, `_x.ai/models/update`, `_x.ai/settings/update`. |
-| Claude adapter | Patched: `_session/steering` (with `priority` and `uuid`), `_session/steering/cancel`, `_session/btw`. Also `_session/async_task/stop`, and the notifications `_auth/status_update`, `async_task_*`, `notice`, `session_info_update` with `_meta.promptSuggestions`, `_claude/sdkMessage` (`command_lifecycle` only) and `_claude/rateLimit` in `usage_update`. |
+| Claude adapter | Patched: `_session/steering` (with `priority` and `uuid`), `_session/steering/cancel`, `_session/btw`. The patch also keeps `worktreePath` and `originalCwd` in `_meta.claudeCode.toolResponse` of a tool result. Also `_session/async_task/stop`, and the notifications `_auth/status_update`, `async_task_*`, `notice`, `session_info_update` with `_meta.promptSuggestions`, `_claude/sdkMessage` (`command_lifecycle` only) and `_claude/rateLimit` in `usage_update`. |
 | Codex adapter | `_session/steering`, `_session/async_task/stop`, and the notifications `_auth/status_update`, `async_task_*`, `subagent_spawned`, `subagent_state_update`, `notice` and `_meta.codex.threadStatus` in `session_info_update`. A subagent's own session reaches the client too; `bridge/adapter.ts` shows its tool calls and requests in the parent's chat. Patched to read `_meta["x-bench/codex"]` on MCP servers for tools that run without asking. ChatGPT side questions use `session/fork` with `_meta["x-bench/sideQuestion"]`, patched to create an ephemeral Codex thread. The patch also switches off the user's Codex MCP servers and plugins on that thread. The provider asks it to answer without tools in plan mode under the read-only preset, collects its answer outside session state, then deletes the fork. |
 
 ## Types, schemas and tests

@@ -163,16 +163,16 @@ test("a Jira binding round-trips, and a chat can link to an issue key", () => {
 
 test("a Jira board's rules name only its In Progress and Done columns and say a move can be refused", () => {
   const state = bindBoard(emptyTickets(), "/tmp/app", { provider: "jira", boardId: 12, title: "App", projectKey: "APP", columns: ["To Do", "In Progress", "Done"] });
-  const rules = rulesForBoard(state, "/tmp/app", "http://127.0.0.1:8787", { id: "APP-3" }, "/tmp/token");
+  const rules = rulesForBoard(state, "/tmp/app", { id: "APP-3" });
   assert.match(rules, /Jira board/);
   assert.match(rules, /Do not call Jira directly/);
   assert.doesNotMatch(rules, /To Do/);
-  assert.match(rules, /Starting work on a ticket moves it to In Progress\. .*\{"taskId":"<key>","status":"In Progress"\}/);
-  assert.match(rules, /"status":"Done"/);
+  assert.match(rules, /Starting work on a ticket moves it to In Progress\. .*status "In Progress"/);
+  assert.match(rules, /status "Done"/);
   assert.match(rules, /workflow/);
-  assert.match(rules, /POST \/api\/board\/tasks\/<key>\/files\?name=<file name>.*with !<file name>!\./);
+  assert.match(rules, /board_attach_file tool and the file's path\. Show it in the description or a comment with !<file name>!\./);
   assert.match(rules, /ticket APP-3/);
-  assert.match(rules, /X-Bench-Token/);
+  assert.match(rules, /tell the user what the tool answered/);
   assert.match(threadBrief({ id: "APP-3", title: "Ship", status: "To Do" }), /Ticket APP-3, currently in To Do\./);
 });
 
@@ -304,6 +304,7 @@ test("the board routes bind a folder to a Jira board, load it with its capabilit
     assert.deepEqual(move, { status: 409, body: { error: "Jira's workflow has no move from To Do to Done", code: "jira" } });
     // A worktree without a binding of its own moves tickets on its checkout's board.
     assert.deepEqual(await send("POST", "/api/board/move", { cwd: tree, taskId: "APP-7", status: "done" }), move);
+    assert.equal(at((await send("GET", `/api/board/board?cwd=${encodeURIComponent(tree)}`)).body, "folder"), folder);
     const removed = await send("DELETE", "/api/board/tasks/APP-7");
     assert.deepEqual(removed, { status: 200, body: { ok: true } });
     assert.equal(calls.filter((call) => call.startsWith("DELETE")).join(), "DELETE /rest/api/2/issue/APP-7");

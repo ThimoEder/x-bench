@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type Dispatch } from "react";
 import type { SidebarProject, SidebarSession, Surface, TicketLink } from "../server/snapshot.ts";
 import type { Opening, ShownSession } from "./dock/deskView.ts";
-import { DESK, ROUTINES, type NavAction, type Page, type View } from "./navigation.ts";
+import { DESK, NEEDS, ROUTINES, type NavAction, type Page, type View } from "./navigation.ts";
 import type { RoutineSeed } from "./routines/routineForm.ts";
 import type { SettingsTab } from "./settings/Settings.tsx";
 import type { chatOpener } from "./sidebar/chatOpener.ts";
@@ -54,22 +54,27 @@ export function useDeskActions({ snapshot, ready, call, clearNotice, view, navig
     if (seed) setRoutineSeed(seed);
   }
 
+  function showNeeds() {
+    go(NEEDS);
+    setCreateBoard(null);
+  }
+
   function selectSurface(mode: Surface) {
     if (mode !== "builder" && mode !== "chat") return undefined;
     go(DESK);
     return requestSurface(mode);
   }
 
-  // Opens a routine's run, from its page or its notification: on the surface its chat belongs to.
-  // The page stays on Routines until the run has loaded, so a run that cannot open is never mistaken for the chat
-  // behind the page.
-  async function openRun(sessionId: string, cwd: string, chat: boolean) {
+  // Opens a chat no sidebar list may show, such as a routine's run, on the surface it belongs to.
+  // The page it is opened from stays up until the chat has loaded, so a chat that cannot open is never mistaken for
+  // the one behind the page.
+  async function openRun(sessionId: string, cwd: string, chat: boolean, from: Page = ROUTINES) {
     const surface = chat ? "chat" : "builder";
     const settingsAtStart = view.settings;
     // The surface switch cancels opens in progress at once, so the claim comes after it starts.
     const switching = surface !== snapshot.surface ? selectSurface(surface) : undefined;
-    // The switch closes Routines, which stays up over the other surface until the run has loaded.
-    if (switching) navigate({ type: "go", to: ROUTINES });
+    // The switch closes the page, which stays up over the other surface until the chat has loaded.
+    if (switching) navigate({ type: "go", to: from });
     const current = opener.claim();
     try {
       await switching;
@@ -79,7 +84,7 @@ export function useDeskActions({ snapshot, ready, call, clearNotice, view, navig
       if (isRecord(loaded) && loaded.overtaken) throw new Error("overtaken");
     } catch {
       // The banner says why.
-      if (current()) navigate({ type: "go", to: ROUTINES, settingsAtStart });
+      if (current()) navigate({ type: "go", to: from, settingsAtStart });
       return;
     }
     // Settings opened while the run loaded stay open.
@@ -128,7 +133,7 @@ export function useDeskActions({ snapshot, ready, call, clearNotice, view, navig
   }
 
   return {
-    go, leave, showSettings, showSettingsTab, closeSettings, selectTask, showRoutines, selectSurface, openRun,
+    go, leave, showSettings, showSettingsTab, closeSettings, selectTask, showRoutines, showNeeds, selectSurface, openRun,
     openChat, openSession, openLinkedSession, openProject, removeBoard,
     createBoard, setCreateBoard, routineSeed, clearRoutineSeed: () => setRoutineSeed(null),
   };

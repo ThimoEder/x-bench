@@ -311,7 +311,7 @@ function formatInput(raw: unknown): string {
   return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
 }
 
-function ShieldIcon() {
+export function ShieldIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 3 5 6v5.5c0 4.3 3 7.7 7 9.5 4-1.8 7-5.2 7-9.5V6z" />

@@ -9,6 +9,7 @@ import type { DeviceFocus } from "./devices/devices.ts";
 import type { ShellView } from "./terminal/terminal.ts";
 import type { GoneFolder } from "./folder/goneFolder.ts";
 import type { RoutinesView } from "./routines/routineScheduler.ts";
+import type { Wait } from "./needs/needsYou.ts";
 
 export type { AccountUsage };
 
@@ -26,6 +27,8 @@ export interface Snapshot {
   working: string[];
   attention: string[];
   unread: string[];
+  // Every request a chat waits on the person for, the longest wait first. Chats off the desk are in it too.
+  needsYou: Wait[];
   // Plan usage per provider that reports it.
   usage: ProviderUsage[];
   notices: ServiceNotice[];
@@ -86,7 +89,7 @@ export type ProviderUsage = AccountUsage & { provider: string; label: string };
 export type OpenSession = PresentedSession & { title: string | null; provider: string; suggestions: TaskSuggestion[]; folderGone?: GoneFolder };
 
 export type { BrowserView, DeviceFocus, ShellView, TaskSuggestion };
-export type { RoutinesView };
+export type { RoutinesView, Wait };
 export type { RoutineView, RoutineRunView, RunState } from "./routines/routineScheduler.ts";
 
 export type Surface = "builder" | "chat";

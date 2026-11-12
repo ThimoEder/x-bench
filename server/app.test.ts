@@ -776,11 +776,19 @@ test("a prompt streams back, and a permission answer lets the turn finish", asyn
       body: { error: "That request is no longer waiting" },
     });
     assert.equal(grok.answers.has("perm-1"), false);
+    await waitFor(() => host.app.store.snapshot.needsYou.length === 1);
+    const [wait] = host.app.store.snapshot.needsYou;
+    assert.deepEqual([wait?.sessionId, wait?.permission?.id, wait?.permission?.title, wait?.chat], ["s1", "perm-1", "Write a.txt", false]);
+    await call(host.app, "POST", "/api/rename", { sessionId: "s1", title: "Renamed" });
+    assert.equal(host.app.store.snapshot.needsYou[0]?.title, "Renamed");
+    await call(host.app, "POST", "/api/leave", { sessionId: "s1" });
+    assert.equal(host.app.store.snapshot.needsYou.length, 1);
     assert.deepEqual(await call(host.app, "POST", "/api/permission", { sessionId: "s1", optionId: "allow-once", id: "perm-1" }), {
       status: 200,
       body: { ok: true },
     });
     assert.deepEqual(grok.answers.get("perm-1"), { outcome: { outcome: "selected", optionId: "allow-once" } });
+    await waitFor(() => host.app.store.snapshot.needsYou.length === 0);
     await waitFor(() => host.session("s1").status === "idle");
     const texts = host.session("s1").transcript.map((item) => item.text ?? item.type);
     assert.deepEqual(texts, ["write a.txt", "Writing it.", "tool"]);

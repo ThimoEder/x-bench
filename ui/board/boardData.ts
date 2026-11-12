@@ -47,6 +47,8 @@ export interface BoardView {
   truncated?: unknown;
   activity?: unknown;
   me?: unknown;
+  // The folder the board is bound to: the checkout's when the page's folder is a worktree of it.
+  folder?: unknown;
   // The folder's board settings, as boardSettings reads them.
   settings?: unknown;
 }

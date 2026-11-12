@@ -185,6 +185,21 @@ export function ClockIcon() {
   );
 }
 
+export function HandIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M5 8V3.6a1 1 0 0 1 2 0V7M7 7V2.8a1 1 0 0 1 2 0V7M9 7V3.6a1 1 0 0 1 2 0v5.2M5 8.2 3.9 7.1a1 1 0 0 0-1.5 1.3l2.3 3.4A4 4 0 0 0 8 13.5h.2A2.8 2.8 0 0 0 11 10.7V8.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function PlusIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">

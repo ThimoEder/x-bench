@@ -5,6 +5,21 @@ import { ticketId } from "./ticketId.ts";
 
 export const CHAT_ID_TOOL = "chat_id";
 
+export const BOARD_TOOLS = {
+  read: "board_read",
+  readTicket: "board_read_ticket",
+  create: "board_create_ticket",
+  edit: "board_edit_ticket",
+  move: "board_move_ticket",
+  comment: "board_comment",
+  relate: "board_relate",
+  attach: "board_attach_file",
+  files: "board_files",
+  readFile: "board_read_file",
+  deleteFile: "board_delete_file",
+  link: "board_link_chat",
+} as const;
+
 // The ticket a card thread opens with. Every field is coerced here, so any value reads.
 export interface BoardTicket {
   id?: unknown;
@@ -23,52 +38,48 @@ export function movesFor(columns: readonly MoveColumn[], settings: BoardSettings
   return { create: clean(moves.create), start: clean(moves.start), review: clean(moves.review), done: clean(moves.done) };
 }
 
-function moveJson(id: string, column: MoveColumn): string {
-  return `{"taskId":${id},"status":${JSON.stringify(column.status)}}`;
+// Harnesses hide MCP tools until the agent looks for them, so every rule names its tool.
+export function toolsRule(board: string, holds: string, source: string): string {
+  return `This folder has ${board}. Work on its tickets with the board_ tools of the ${MCP_SERVER} MCP server, which already holds ${holds}. Do not call ${source} directly.`;
 }
 
-export function startRule(column: MoveColumn | null, id: string): string[] {
+function moveWith(column: MoveColumn): string {
+  return `Move it with the ${BOARD_TOOLS.move} tool and status ${JSON.stringify(column.status)}.`;
+}
+
+export function startRule(column: MoveColumn | null): string[] {
   if (!column) return [];
-  return [`Starting work on a ticket moves it to ${column.title}. Move it with POST /api/board/move and JSON ${moveJson(id, column)}.`];
+  return [`Starting work on a ticket moves it to ${column.title}. ${moveWith(column)}`];
 }
 
-export function reviewRule(column: MoveColumn | null, id: string): string[] {
+export function reviewRule(column: MoveColumn | null): string[] {
   if (!column) return [];
-  return [`Opening a pull request that is not a draft, or marking a draft pull request ready for review, moves the ticket to ${column.title}. Move it with POST /api/board/move and JSON ${moveJson(id, column)}. A draft pull request leaves the ticket where it is.`];
+  return [`Opening a pull request that is not a draft, or marking a draft pull request ready for review, moves the ticket to ${column.title}. ${moveWith(column)} A draft pull request leaves the ticket where it is.`];
 }
 
-export function doneRule(column: MoveColumn | null, id: string): string {
+export function doneRule(column: MoveColumn | null): string {
   if (!column) return "A merge, or a commit on main, asks which column the ticket should move to when the work is clearly finished, and waits for the answer.";
-  return `A merge, or a commit on main, moves the ticket to ${column.title} when the work is clearly finished. Move it with POST /api/board/move and JSON ${moveJson(id, column)}. If it is not clear that everything is finished, ask which column it should move to, and wait for the answer.`;
-}
-
-export function accessRule(tokenFile: string): string[] {
-  if (!tokenFile) return [];
-  // The path goes inside single quotes in a shell command, so a quote in it must not end them.
-  const quoted = tokenFile.replaceAll("'", "'\\''");
-  return [
-    `Every request to the board API needs this app's launch token in the X-Bench-Token header. It changes each time the app starts, so read it from ${tokenFile} for each request, for example curl -H "X-Bench-Token: $(cat '${quoted}')". A POST, PUT, PATCH or DELETE also needs -H "Content-Type: application/json".`,
-  ];
+  return `A merge, or a commit on main, moves the ticket to ${column.title} when the work is clearly finished. ${moveWith(column)} If it is not clear that everything is finished, ask which column it should move to, and wait for the answer.`;
 }
 
 export function createRule(column: string): string {
-  return `Create a ticket only when the user mentions a ticket in the thread. An investigation does not get one on its own. Create it with POST /api/board/tasks and JSON {"cwd":"<the session folder>","title":"...","description":"..."}. The description says in a few sentences what the work is, why it matters, and when it is done. The API puts the ticket in ${column} and leaves this chat unlinked.`;
+  return `Create a ticket only when the user mentions a ticket in the thread. An investigation does not get one on its own. Create it with the ${BOARD_TOOLS.create} tool. The description says in a few sentences what the work is, why it matters, and when it is done. The tool puts the ticket in ${column} and leaves this chat unlinked.`;
 }
 
 export function editRule(): string {
-  return `Change a ticket's title or description with PATCH /api/board/tasks/<id> and JSON {"revision":<current revision>,"description":"..."}, adding "title" to rename it. Read the current revision from task.revision in GET /api/board/tasks/<id> right before the edit, and send it back exactly as it reads. When the API refuses the edit with 409, read the ticket again and redo the edit on its new text.`;
+  return `Change a ticket's title or description with the ${BOARD_TOOLS.edit} tool. Read the ticket's revision with ${BOARD_TOOLS.readTicket} right before the edit, and send it back exactly as it reads. When the tool refuses the edit with 409, read the ticket again and redo the edit on its new text.`;
 }
 
-export function commentRule(id: string): string {
-  return `Read a ticket's comments with GET /api/board/tasks/${id}/comments. GET /api/board/tasks/${id} also answers them in its comments field. Add a comment with POST /api/board/tasks/${id}/comments and JSON {"body":"..."}.`;
+export function commentRule(): string {
+  return `Read a ticket and its comments with the ${BOARD_TOOLS.readTicket} tool. Add a comment with ${BOARD_TOOLS.comment}.`;
 }
 
-export function fileRule(id: string, shown: string): string {
-  return `Attach a screenshot or a screen recording to a ticket with POST /api/board/tasks/${id}/files?name=<file name>, -H "Content-Type: application/octet-stream" and the file as the body, for example --data-binary @shot.png. ${shown} List a ticket's files with GET /api/board/tasks/${id}/files, read one with GET /api/board/tasks/${id}/files/<file id>, and delete one with DELETE /api/board/tasks/${id}/files/<file id>.`;
+export function fileRule(shown: string): string {
+  return `Attach a screenshot or a screen recording to a ticket with the ${BOARD_TOOLS.attach} tool and the file's path. ${shown} List a ticket's files with ${BOARD_TOOLS.files}, save one to open it with ${BOARD_TOOLS.readFile}, and delete one with ${BOARD_TOOLS.deleteFile}.`;
 }
 
 export function attachRule(): string {
-  return `Link this chat when you create a ticket and start working on it, or when the user asks you to link the ticket. Link it with POST /api/board/links and JSON {"cwd":"<the session folder>","taskId":"<id>","sessionId":"<this chat's id>"}. The ${CHAT_ID_TOOL} tool of the ${MCP_SERVER} MCP server answers this chat's id. Without a sessionId, the API attaches the one chat working in that folder.`;
+  return `Link this chat when you create a ticket and start working on it, or when the user asks you to link the ticket. Link it with the ${BOARD_TOOLS.link} tool.`;
 }
 
 export function shareRule(): string {
@@ -88,8 +99,4 @@ export function ticketRef(ticket?: BoardTicket | null): string {
 
 export function oneLine(value: unknown): string {
   return stripHidden(value || "").trim().replace(/\s+/g, " ");
-}
-
-export function apiHome(origin: string): string {
-  return String(origin || "").replace(/\/$/, "");
 }

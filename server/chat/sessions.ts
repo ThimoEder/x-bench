@@ -41,36 +41,17 @@ export { canonicalCwd };
 
 export function listSessions(cwd: string, root = defaultRoot): SessionListRow[] {
   const abs = path.resolve(cwd);
-  if (!existsSync(root)) return [];
   const rows: SessionListRow[] = [];
-  for (const group of readdirSync(root, { withFileTypes: true })) {
-    if (!group.isDirectory()) continue;
-    const groupDir = path.join(root, group.name);
-    let entries: Dirent[];
-    try {
-      entries = readdirSync(groupDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const summaryPath = path.join(groupDir, entry.name, "summary.json");
-      if (!existsSync(summaryPath)) continue;
-      try {
-        const summary = readSummary(summaryPath);
-        if (isSubagentSession(summary)) continue;
-        if (summary.info.cwd !== abs) continue;
-        rows.push({
-          id: rowId(summary, entry.name),
-          title: summary.generated_title || summary.session_summary || "Untitled",
-          updatedAt: summary.updated_at || summary.created_at || null,
-          modelId: summary.current_model_id || null,
-        });
-      } catch {
-        // Skip a summary that is mid-write.
-      }
-    }
-  }
+  forEachSummary(root, (summary, dirName) => {
+    if (isSubagentSession(summary)) return;
+    if (summary.info.cwd !== abs) return;
+    rows.push({
+      id: rowId(summary, dirName),
+      title: summary.generated_title || summary.session_summary || "Untitled",
+      updatedAt: summary.updated_at || summary.created_at || null,
+      modelId: summary.current_model_id || null,
+    });
+  });
   rows.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   return rows;
 }
@@ -78,8 +59,36 @@ export function listSessions(cwd: string, root = defaultRoot): SessionListRow[] 
 export function sessionIndex(root = defaultRoot): SessionIndex {
   const rows: SessionIndexRow[] = [];
   const subagentIds: string[] = [];
-  if (!existsSync(root)) return { rows, subagentIds };
   const temp = canonicalCwd(os.tmpdir());
+  forEachSummary(root, (summary, dirName) => {
+    const id = rowId(summary, dirName);
+    if (isSubagentSession(summary)) {
+      subagentIds.push(id);
+      return;
+    }
+    const folder = summary.info.cwd;
+    if (!folder || typeof folder !== "string") return;
+    const key = canonicalCwd(folder);
+    if (key === temp || key.startsWith(`${temp}${path.sep}`)) return;
+    const sourceDir = summary.source_workspace_dir;
+    if (sourceDir && typeof sourceDir !== "string") return;
+    const source = typeof sourceDir === "string" && sourceDir ? canonicalCwd(sourceDir) : "";
+    const worktreeLabel = summary.worktree_label ? String(summary.worktree_label) : "";
+    rows.push({
+      id,
+      cwd: key,
+      title: summary.generated_title || summary.session_summary || "Untitled",
+      updatedAt: summary.updated_at || summary.created_at || "",
+      ...(source && source !== key ? { source } : {}),
+      ...(worktreeLabel ? { worktreeLabel } : {}),
+    });
+  });
+  return { rows, subagentIds };
+}
+
+// Calls visit with each <group>/<session>/summary.json under root and the session folder's name.
+function forEachSummary(root: string, visit: (summary: Summary, dirName: string) => void) {
+  if (!existsSync(root)) return;
   for (const group of readdirSync(root, { withFileTypes: true })) {
     if (!group.isDirectory()) continue;
     const groupDir = path.join(root, group.name);
@@ -94,34 +103,12 @@ export function sessionIndex(root = defaultRoot): SessionIndex {
       const summaryPath = path.join(groupDir, entry.name, "summary.json");
       if (!existsSync(summaryPath)) continue;
       try {
-        const summary = readSummary(summaryPath);
-        const id = rowId(summary, entry.name);
-        if (isSubagentSession(summary)) {
-          subagentIds.push(id);
-          continue;
-        }
-        const folder = summary.info.cwd;
-        if (!folder || typeof folder !== "string") continue;
-        const key = canonicalCwd(folder);
-        if (key === temp || key.startsWith(`${temp}${path.sep}`)) continue;
-        const sourceDir = summary.source_workspace_dir;
-        if (sourceDir && typeof sourceDir !== "string") continue;
-        const source = typeof sourceDir === "string" && sourceDir ? canonicalCwd(sourceDir) : "";
-        const worktreeLabel = summary.worktree_label ? String(summary.worktree_label) : "";
-        rows.push({
-          id,
-          cwd: key,
-          title: summary.generated_title || summary.session_summary || "Untitled",
-          updatedAt: summary.updated_at || summary.created_at || "",
-          ...(source && source !== key ? { source } : {}),
-          ...(worktreeLabel ? { worktreeLabel } : {}),
-        });
+        visit(readSummary(summaryPath), entry.name);
       } catch {
         // Skip a summary that is mid-write.
       }
     }
   }
-  return { rows, subagentIds };
 }
 
 // Callers skip a null summary like a partial write.

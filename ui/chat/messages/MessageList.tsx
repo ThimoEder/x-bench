@@ -544,6 +544,7 @@ type Block =
 
 type ActivityRow =
   | { type: "summary"; id: string; items: ActivityItem[] }
+  | { type: "repeat"; id: string; items: ActivityItem[] }
   | { type: "notice"; id: string; notice: TaskNotice }
   | { type: "thought"; id: string; item: PresentedTextItem }
   | { type: "edit" | "tool"; id: string; item: ActivityItem }
@@ -833,6 +834,7 @@ const Activity = memo(function Activity({ items, steps, tasks, cwd, sessionId, o
         if (row.type === "summary") {
           return <SummaryRow key={row.id} items={row.items} cwd={cwd} sessionId={sessionId} shots={rowShots} onOpen={onOpen} />;
         }
+        if (row.type === "repeat") return <ToolRow key={row.id} items={row.items} cwd={cwd} sessionId={sessionId} shots={rowShots} onOpen={onOpen} />;
         if (row.type === "edit") return <EditRow key={row.id} item={row.item} cwd={cwd} onOpenFile={onOpenFile} />;
         if (row.type === "page") return <PageCard key={row.id} page={row.page} sessionId={sessionId} />;
         if (row.type === "app") return <AppCard key={row.id} app={row.app} sessionId={sessionId} />;
@@ -840,7 +842,7 @@ const Activity = memo(function Activity({ items, steps, tasks, cwd, sessionId, o
         const task = row.item.toolCallId ? tasks?.get(row.item.toolCallId) : undefined;
         const starting = row.item.role === "subagent" && (row.item.status === "in_progress" || row.item.status === "pending");
         if (taken?.length || task || starting) return <SubagentRow key={row.id} item={row.item} steps={taken ?? []} cwd={cwd} task={task} onStop={onStopTask} />;
-        return <ToolRow key={row.id} item={row.item} cwd={cwd} sessionId={sessionId} shots={rowShots} onOpen={onOpen} />;
+        return <ToolRow key={row.id} items={[row.item]} cwd={cwd} sessionId={sessionId} shots={rowShots} onOpen={onOpen} />;
       })}
       {open != null ? createPortal(
         <ShotLightbox
@@ -910,11 +912,20 @@ function activityRows(items: ActivityEntry[]) {
       rows.push({ type: "edit", id: item.id, item });
     } else {
       flush();
-      rows.push({ type: "tool", id: item.id, item });
+      const last = rows.at(-1);
+      if (last?.type === "repeat" && foldsInto(last.items[0], item)) last.items.push(item);
+      else if (last?.type === "tool" && foldsInto(last.item, item)) rows[rows.length - 1] = { type: "repeat", id: last.id, items: [last.item, item] };
+      else rows.push({ type: "tool", id: item.id, item });
     }
   }
   flush();
   return rows;
+}
+
+// Back-to-back calls of one tool share a row. A subagent keeps its own row for its steps.
+function foldsInto(previous: ActivityItem | undefined, item: ActivityItem) {
+  if (previous === undefined || previous.role === "subagent" || item.role === "subagent") return false;
+  return previous.title === item.title && toolLabel(previous) === toolLabel(item);
 }
 
 // A reply's text can arrive in bursts. Each burst is revealed at a steady pace, so the text runs along instead of jumping.
@@ -1024,6 +1035,12 @@ function SummaryRow({ items, cwd, sessionId, shots = [], onOpen }: ShotRowProps 
       <ChatShots sessionId={sessionId} shots={shots} onOpen={onOpen} />
     </div>
   );
+}
+
+function callInput(item: ActivityItem) {
+  const named = [item.command, item.path].filter(Boolean).join(" ");
+  if (named || !item.rawInput) return named;
+  return typeof item.rawInput === "string" ? item.rawInput : JSON.stringify(item.rawInput);
 }
 
 function EditRow({ item, cwd, onOpenFile }: { item: ActivityItem; cwd: string; onOpenFile?: (filePath: string) => void }) {
@@ -1243,18 +1260,41 @@ function MoreIcon() {
   );
 }
 
-function ToolRow({ item, sessionId, shots = [], onOpen }: ShotRowProps & { item: ActivityItem }) {
-  const live = item.status === "in_progress";
-  const shell = item.role === "shell";
-  const detail = toolDetail(item);
+// One call, or calls of one tool in a row: one line with a count, and each call's input when opened.
+// Equal inputs in a row share a line. A row keeps its open state when a call joins it.
+function ToolRow({ items, sessionId, shots = [], onOpen }: ShotRowProps & { items: ActivityItem[] }) {
+  const first = items[0] as ActivityItem;
+  const live = items.some((item) => item.status === "in_progress");
+  const detail = items.length === 1 ? toolDetail(first) : "";
+  const inputs: { text: string; count: number }[] = [];
+  for (const item of items.length > 1 ? items : []) {
+    const text = callInput(item);
+    const last = inputs.at(-1);
+    if (last?.text === text) last.count += 1;
+    else inputs.push({ text, count: 1 });
+  }
+  const shown = inputs.filter((input) => input.text);
   return (
     <div className="tool-block">
-      <details className={live ? "activity-row live" : shell ? "activity-row is-shell" : "activity-row"} data-testid="tool">
+      <details className={live ? "activity-row live" : first.role === "shell" ? "activity-row is-shell" : "activity-row"} data-testid="tool">
         <summary>
           {live ? <span className="live-mark">&gt;</span> : <Diamond filled />}
-          <span className="activity-label">{toolLabel(item)}</span>
+          <span className="activity-label">
+            {toolLabel(first)}
+            {items.length > 1 ? <span className="repeat-count"> × {items.length}</span> : null}
+          </span>
         </summary>
         {detail ? <pre className="activity-detail input">{detail}</pre> : null}
+        {shown.length ? (
+          <ul className="quiet-list repeat-inputs">
+            {shown.map((input, index) => (
+              <li key={index}>
+                <code>{input.text}</code>
+                {input.count > 1 ? <span className="repeat-count"> × {input.count}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </details>
       <ChatShots sessionId={sessionId} shots={shots} onOpen={onOpen} />
     </div>
@@ -1262,7 +1302,7 @@ function ToolRow({ item, sessionId, shots = [], onOpen }: ShotRowProps & { item:
 }
 
 function shotsForRow(row: ActivityRow) {
-  if (row.type === "summary") return row.items.flatMap(shotsOf);
+  if (row.type === "summary" || row.type === "repeat") return row.items.flatMap(shotsOf);
   if (row.type === "tool") return shotsOf(row.item);
   return [];
 }

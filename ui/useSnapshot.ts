@@ -23,6 +23,7 @@ const empty: PageSnapshot = {
   working: [],
   attention: [],
   unread: [],
+  needsYou: [],
   notices: [],
   tickets: { boards: [], bySession: {} },
   providers: [],

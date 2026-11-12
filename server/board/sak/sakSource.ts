@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fields } from "../../../bridge/lenient.ts";
 import { BOARD_TEXT_RULE, clip } from "../boardText.ts";
 import type { BoardSettings } from "../boardSettings.ts";
-import { accessRule, apiHome, attachRule, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startRule, ruleText, type BoardTicket } from "../sharedRules.ts";
+import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
 
 export interface SakBinding {
   provider: "sak";
@@ -30,19 +30,18 @@ const SAK_COLUMNS = [
   { status: "done", title: "Done" },
 ];
 
-function sakRules(origin: string, _binding: SakBinding, ticket: BoardTicket | null | undefined, tokenFile: string, settings: BoardSettings): string {
+function sakRules(_binding: SakBinding, ticket: BoardTicket | null | undefined, settings: BoardSettings): string {
   const moves = movesFor(SAK_COLUMNS, settings);
   return ruleText([
-    `This folder has a board. Move tickets through this app's local board API at ${apiHome(origin)}. It already holds the SAK token. Do not call SAK directly.`,
-    ...accessRule(tokenFile),
+    toolsRule("a board", "the SAK token", "SAK"),
     createRule(moves.create?.title ?? "open"),
     editRule(),
-    commentRule("<id>"),
-    ...startRule(moves.start, "<id>"),
-    ...reviewRule(moves.review, "<id>"),
-    doneRule(moves.done, "<id>"),
-    'File a ticket as a sub-task of another with PUT /api/board/tasks/<id>/relations and JSON {"otherTaskId":<parent id>,"kind":"parent"}. Mark what blocks a ticket with the same route and JSON {"otherTaskId":<blocker id>,"kind":"blocked_by"}. The other kinds are subtask, blocks, follows, precedes, relates and duplicates. Remove a relation with DELETE /api/board/tasks/<id>/relations/<other id>/<kind>.',
-    fileRule("<id>", "SAK takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips. Show one in the description or a comment with ![<what it shows>](<url>), using the url the upload answers."),
+    commentRule(),
+    ...startRule(moves.start),
+    ...reviewRule(moves.review),
+    doneRule(moves.done),
+    `File a ticket as a sub-task of another with the ${BOARD_TOOLS.relate} tool, kind parent and the parent as otherId. Mark what blocks a ticket with kind blocked_by and the blocker as otherId. The other kinds are subtask, blocks, follows, precedes, relates and duplicates. Remove a relation with remove true.`,
+    fileRule("SAK takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips. Show one in the description or a comment with ![<what it shows>](<url>), using the url the tool answers."),
     attachRule(),
     `${shareRule()} Do not link to the SAK dashboard.`,
     BOARD_TEXT_RULE,

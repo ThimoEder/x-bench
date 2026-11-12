@@ -39,7 +39,7 @@ import type { ToolCall, ToolFacts } from "../tools.ts";
 import { nodeStdioAgent, spawnStdioAgent } from "../stdio.ts";
 import { commandVersion } from "../command.ts";
 import { readClaudeUsage, usageFromAnswer, usageFromRateLimit, type ClaudeCode } from "./usage.ts";
-import { claudeFacts } from "./tools.ts";
+import { claudeFacts, movedFolder } from "./tools.ts";
 
 // The adapter's own name for each of the app's modes. Always approve is full, which is
 // bypassPermissions: the same promise as Grok's agent mode. Claude's auto, where Claude
@@ -92,10 +92,12 @@ const UsageUpdate = fields({
 });
 
 // The tool Claude Code ran, and the subagent's tool call it ran in, which the adapter names in _meta.
+// toolResponse holds the fields of the tool's result the adapter keeps (patches/ adds the worktree folders).
 const ToolName = fields({
   params: fields({
     update: fields({
-      _meta: maybe(fields({ claudeCode: maybe(fields({ toolName: maybe(z.string()), parentToolUseId: maybe(z.string()) })) })),
+      toolCallId: maybe(z.string()),
+      _meta: maybe(fields({ claudeCode: maybe(fields({ toolName: maybe(z.string()), parentToolUseId: maybe(z.string()), toolResponse: z.unknown().optional() })) })),
     }),
   }),
 });
@@ -637,8 +639,18 @@ export class ClaudeProvider extends AdapterClient implements Provider {
         this.noteRateLimit(usage.update);
         this.noteTurnEnd(usage.sessionId, usage.update);
       }
+      const tool = ToolName.parse(message).params.update;
+      if (usage.sessionId) this.followWorktree(usage.sessionId, tool.toolCallId, tool._meta?.claudeCode?.toolResponse);
     }
     return false;
+  }
+
+  // The adapter names the tool on the call's first update only, so the transcript says whose result this is.
+  // A subagent that enters a worktree leaves the chat where it is.
+  private followWorktree(sessionId: string, toolCallId: string | undefined, response: unknown) {
+    if (!toolCallId || !response) return;
+    const tool = this.sessionMap.get(sessionId)?.transcript.find((item) => item.type === "tool" && item.toolCallId === toolCallId);
+    if (tool?.type === "tool" && !tool.parentId) this.setSessionCwd(sessionId, movedFolder(tool.name, response));
   }
 
   // A side question (/btw): Claude Code's own, through the adapter's _session/btw (patched in). Claude answers

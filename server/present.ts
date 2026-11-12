@@ -256,6 +256,13 @@ function presentOption(option: SessionState["configOptions"][number]): Presented
   };
 }
 
+// What a session waits on the person for, as its cards draw it.
+export function presentWaits(session: SessionState) {
+  const permission = presentPermission(session.pendingPermission, session.transcript);
+  const tool = permission?.toolCallId ? session.transcript.find((item): item is ToolItem => item.type === "tool" && item.toolCallId === permission.toolCallId) : undefined;
+  return { permission, diffs: (tool?.diffs ?? []).map(presentDiff), plan: presentPlan(session.pendingPlan), question: presentQuestion(session.pendingElicitation) };
+}
+
 function presentPlan(plan: PendingPlan | null): PresentedPlan | null {
   if (!plan) return null;
   const text = plan.plan || "";

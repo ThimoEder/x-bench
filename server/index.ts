@@ -74,7 +74,7 @@ const folders: ChatFolders = {
   projectOf: (sessionId) => app.chatFolders.projectOf(sessionId),
   move: (cwd, sessionIds, name) => app.chatFolders.move(cwd, sessionIds, name),
 };
-const hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, browser, simulator, builds, devices, folders, routines: () => app.routineTools }), { builder: builderFolder(paths.chatHome) });
+const hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, browser, simulator, builds, devices, folders, routines: () => app.routineTools, board: (...request) => app.boardCall(...request) }), { builder: builderFolder(paths.chatHome) });
 const sessionTools = hostTools.sessionTools({ port, token });
 
 const grok = new GrokProvider({

@@ -248,3 +248,22 @@ index da1685b..741482e 100644
              await deleteSessionIfStored(params.sessionId);
          }
          return {};
+diff --git a/node_modules/@agentclientprotocol/claude-agent-acp/dist/tool-calls/content.js b/node_modules/@agentclientprotocol/claude-agent-acp/dist/tool-calls/content.js
+index f58b961..12e41bb 100644
+--- a/node_modules/@agentclientprotocol/claude-agent-acp/dist/tool-calls/content.js
++++ b/node_modules/@agentclientprotocol/claude-agent-acp/dist/tool-calls/content.js
+@@ -185,10 +185,13 @@ export function toolResponseMarkers(toolResponse) {
+     if (!toolResponse || typeof toolResponse !== "object" || Array.isArray(toolResponse)) {
+         return undefined;
+     }
+-    const { status, isAsync } = toolResponse;
++    const { status, isAsync, worktreePath, originalCwd } = toolResponse;
+     const markers = {
+         ...(typeof status === "string" ? { status } : {}),
+         ...(typeof isAsync === "boolean" ? { isAsync } : {}),
++        // X Bench: the folder EnterWorktree moved the session to, and the one ExitWorktree moved it back to.
++        ...(typeof worktreePath === "string" ? { worktreePath } : {}),
++        ...(typeof originalCwd === "string" ? { originalCwd } : {}),
+     };
+     return Object.keys(markers).length > 0 ? markers : undefined;
+ }

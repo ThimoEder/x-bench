@@ -2948,6 +2948,15 @@ button.edit-path:hover { color: var(--edit-hover); }
   font-size: 0.8rem;
 }
 
+.repeat-count { color: var(--quiet); font-weight: 400; }
+
+.repeat-inputs li {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.repeat-inputs code { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; }
+
 .live-mark {
   width: 11px;
   flex: none;
@@ -6827,6 +6836,8 @@ button.voice .voice-dot {
 
 .ticket-card-text.full { max-height: 16rem; overflow: auto; }
 .ticket-card-text p { margin: 0 0 0.35rem; }
+.ticket-card-text :is(h1, h2, h3, h4, h5, h6) { margin: 0.35rem 0 0.1rem; color: var(--text); font-size: inherit; font-weight: 650; }
+.ticket-card-text > div > :first-child { margin-top: 0; }
 
 .ticket-card-more {
   margin: 0.15rem 0.45rem 0;
@@ -10026,6 +10037,37 @@ html[data-shell="desktop"] .settings-title {
 }
 
 .sidebar-routines .routine-unread { margin-left: auto; }
+
+/* Needs you: the sidebar row and the page's list. */
+.sidebar-needs { padding-right: calc(0.3rem + 6px); }
+.sidebar-needs.is-active { background: var(--active); }
+.needs-count {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--attention) 20%, transparent);
+  color: var(--attention);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 20px;
+  text-align: center;
+}
+
+.routines-empty > p:last-child { margin-bottom: 0; }
+
+.waits { margin: 0; padding: 0; list-style: none; border-radius: 18px; background: var(--card); box-shadow: var(--card-shadow); }
+.waits > li + li { box-shadow: inset 0 1px 0 var(--line); }
+.wait { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 16px; border-radius: 18px; color: var(--text); text-align: left; }
+.wait:hover { background: var(--hover); }
+.wait-icon { flex: none; display: grid; place-items: center; width: 22px; color: var(--attention); }
+.wait-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.wait-title { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wait-why { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wait-go { flex: none; color: var(--faint); rotate: -90deg; transition: rotate 200ms; }
+.waits > li.is-open .wait-go { rotate: 0deg; }
+.wait-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 2px 16px 16px 50px; }
+.wait-open { justify-self: start; }
 
 .routines {
   flex: 1;

@@ -4,7 +4,7 @@ import { routineSearch, routinesTarget } from "./routines/routineLink.ts";
 import type { SettingsTab } from "./settings/Settings.tsx";
 
 // What covers the desk. ProjectBoard selects a task id as the board sent it.
-export type Page = { page: "desk" } | { page: "board"; cwd: string; taskId: unknown } | { page: "routines" };
+export type Page = { page: "desk" } | { page: "board"; cwd: string; taskId: unknown } | { page: "routines" } | { page: "needs" };
 
 export type View = Page & { settings: SettingsTab | null };
 
@@ -18,6 +18,7 @@ export type NavAction =
 
 export const DESK: Page = { page: "desk" };
 export const ROUTINES: Page = { page: "routines" };
+export const NEEDS: Page = { page: "needs" };
 
 export function navigate(view: View, action: NavAction): View {
   switch (action.type) {
@@ -38,6 +39,7 @@ export function navigate(view: View, action: NavAction): View {
 export function pageFromSearch(search: string): Page {
   const board = boardTarget(search);
   if (board.cwd) return { page: "board", cwd: board.cwd, taskId: board.taskId };
+  if (new URLSearchParams(search).has("needs")) return NEEDS;
   return routinesTarget(search) ? ROUTINES : DESK;
 }
 
@@ -47,6 +49,7 @@ export function viewFromSearch(search: string): View {
 
 export function searchFor(page: Page): string {
   if (page.page === "routines") return routineSearch();
+  if (page.page === "needs") return "?needs";
   return page.page === "board" ? boardSearch({ cwd: page.cwd, taskId: page.taskId }) : "";
 }
 

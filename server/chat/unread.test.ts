@@ -35,4 +35,5 @@ test("activity marks match only when every list is unchanged", () => {
   assert.equal(sameMarks(marks, { ...marks, working: [] }), false);
   assert.equal(sameMarks(marks, { ...marks, unread: ["b", "c"] }), false);
   assert.equal(sameMarks({}, { working: [], attention: [], unread: [] }), true);
+  assert.equal(sameMarks({ needsYou: [] }, { needsYou: [{ key: "s1:question:1" }] as never }), false);
 });

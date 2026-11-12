@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import type { RoutinesView, Surface } from "../../server/snapshot.ts";
 import { copyName, devBuild, devLabel } from "../devBuild.ts";
 import { slideThumb, useThumb } from "../useThumb.ts";
-import { BuilderIcon, ChatIcon, ClockIcon, CloseIcon, PanelIcon, PlusIcon, SearchIcon } from "./icons.tsx";
+import { BuilderIcon, ChatIcon, ClockIcon, CloseIcon, HandIcon, PanelIcon, PlusIcon, SearchIcon } from "./icons.tsx";
 
 interface BrandProps {
   surface: Surface;
@@ -98,6 +98,20 @@ export function RoutinesButton({ routines, runIds, unread, open, onOpen }: Routi
         </span>
       ) : unreadRuns ? (
         <span className="status-dot unread routine-unread" aria-label="Runs to read" />
+      ) : null}
+    </button>
+  );
+}
+
+export function NeedsYouButton({ count, open, onOpen }: { count: number; open: boolean; onOpen: () => void }) {
+  return (
+    <button className={open ? "sidebar-new sidebar-needs is-active" : "sidebar-new sidebar-needs"} data-testid="open-needs" type="button" aria-current={open ? "page" : undefined} onClick={() => onOpen()}>
+      <HandIcon />
+      <span>Needs you</span>
+      {count ? (
+        <span className="needs-count" aria-label={`${count} waiting for you`}>
+          {count}
+        </span>
       ) : null}
     </button>
   );

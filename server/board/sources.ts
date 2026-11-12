@@ -13,7 +13,7 @@ export type BoardProvider = BoardBinding["provider"];
 export interface BoardSource<B extends BoardBinding> {
   // A binding from tickets.json or a new bind, checked and clipped. null when it is malformed.
   binding(input: unknown): B | null;
-  rules(origin: string, binding: B, ticket: BoardTicket | null | undefined, tokenFile: string, settings: BoardSettings): string;
+  rules(binding: B, ticket: BoardTicket | null | undefined, settings: BoardSettings): string;
 }
 
 const sources: { [P in BoardProvider]: BoardSource<Extract<BoardBinding, { provider: P }>> } = {

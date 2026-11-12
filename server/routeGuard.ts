@@ -58,6 +58,14 @@ export function deskGuard({ desk, providers, store }: Pick<Host, "desk" | "provi
         return handle({ ...request, sessionId });
       };
     },
+    // The id is on the desk, or the chat waits on the person, who answers it from the Needs you page.
+    onDeskOrWaiting<Body>(handle: Handler<OnDeskRequest<Body>>): Handler<RouteRequest<Body>> {
+      return (request) => {
+        const sessionId = sessionIdOf(request);
+        if (!desk.has(sessionId) && !store.snapshot.needsYou.some((wait) => wait.sessionId === sessionId)) return refuse(request, NOT_OPEN);
+        return handle({ ...request, sessionId });
+      };
+    },
     // The id is on the desk and a provider holds the session.
     withSession<Body>(handle: Handler<SessionRequest<Body>>, closed: Closed = NOT_OPEN): Handler<RouteRequest<Body>> {
       return (request) => {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DESK, ROUTINES, navigate, pageFromSearch, searchFor, viewFromSearch, type View } from "./navigation.ts";
+import { DESK, NEEDS, ROUTINES, navigate, pageFromSearch, searchFor, viewFromSearch, type View } from "./navigation.ts";
 
 const board = (cwd: string, taskId: unknown = null): View => ({ page: "board", cwd, taskId, settings: null });
 
@@ -44,6 +44,7 @@ test("the address names the page, and reading it back gives the page", () => {
   }
   assert.equal(searchFor(DESK), "");
   assert.equal(searchFor(ROUTINES), "?routines");
+  assert.deepEqual(pageFromSearch(searchFor(NEEDS)), NEEDS);
   assert.deepEqual(viewFromSearch("?cwd=%2Frepo&routines"), board("/repo"));
   assert.deepEqual(viewFromSearch("?routines"), { page: "routines", settings: null });
 });

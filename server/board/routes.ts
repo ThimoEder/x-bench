@@ -3,27 +3,17 @@
 import type { ServerResponse } from "node:http";
 import { canonicalCwd, isDirectory } from "../chat/sessions.ts";
 import { nameUntitled, notePrompt, renameSession, showProject } from "../sidebar/sidebar.ts";
-import { handleBoard, isBoardPath, PageBody, type BoardContext } from "./board.ts";
+import { handleBoard, isBoardPath, MAX_FILE_BYTES, PageBody, type BoardContext, type BoardRouteServices } from "./board.ts";
 import { stripHidden } from "./boardText.ts";
 import { messageOf, readBody, sendJson } from "../http.ts";
 import type { Host } from "../app.ts";
 import { route, type Route } from "../router.ts";
 
-const MAX_FILE_BYTES = 100 * 1024 * 1024;
-
-export function boardRoutes(host: Host): Route[] {
+// What the board routes and the board tools use from the host.
+export function boardServices(host: Host): BoardRouteServices {
   const { providers, store, port, paths, sak, publish, presentedOpen, activity, catalogSnapshot, safeSessions, ensureProvider, sessionRules, sidebarHome, checkoutOf, changeSidebar, providerError } = host;
 
-  const context: BoardContext<ServerResponse> = {
-    sendJson,
-    sendFile(res, file) {
-      res.statusCode = file.status;
-      for (const [name, value] of Object.entries(file.headers)) res.setHeader(name, value);
-      // A file can be anything a ticket holds, so one opened on this origin runs no script.
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("Content-Security-Policy", "sandbox");
-      res.end(file.bytes);
-    },
+  return {
     // paths names each board source's connection file by its provider id.
     files: { tickets: paths.tickets, connections: paths, savedBoards: paths.savedBoards },
     origin: `http://127.0.0.1:${port}`,
@@ -94,7 +84,21 @@ export function boardRoutes(host: Host): Route[] {
       };
     },
   };
+}
 
+export function boardRoutes(services: BoardRouteServices): Route[] {
+  const context: BoardContext<ServerResponse> = {
+    ...services,
+    sendJson,
+    sendFile(res, file) {
+      res.statusCode = file.status;
+      for (const [name, value] of Object.entries(file.headers)) res.setHeader(name, value);
+      // A file can be anything a ticket holds, so one opened on this origin runs no script.
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Security-Policy", "sandbox");
+      res.end(file.bytes);
+    },
+  };
   return [
     {
       method: "POST",

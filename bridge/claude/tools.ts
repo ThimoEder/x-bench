@@ -38,3 +38,11 @@ export function claudeFacts(tool: ToolCall): ToolFacts {
     agent: role === "subagent" ? textOf(input.subagent_type) : undefined,
   });
 }
+
+// The folder a worktree tool moved the session to. An isolated subagent's result names its worktree too, so the tool's name decides.
+export function movedFolder(toolName: string, response: unknown): string | undefined {
+  if (!isRecord(response)) return undefined;
+  if (toolName === "EnterWorktree") return textOf(response.worktreePath);
+  if (toolName === "ExitWorktree") return textOf(response.originalCwd);
+  return undefined;
+}

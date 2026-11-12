@@ -46,7 +46,7 @@ const QueueBody = SessionBody.extend({ id: z.string(), version: z.number().optio
 
 export function sessionRoutes(host: Host): Route[] {
   const { providers, desk, surfaces, store, publish, presentedOpen, presentedStored, activity, catalogSnapshot, safeSessions, ensureProvider, providerError, sessionError, clearSessionError, clearedBy, sessionRules, sidebarHome, changeSidebar, followOpenSessions, pollUsage, goneFolderOf, createWorktree } = host;
-  const { onDesk, onDeskOrUnsent, withSession } = deskGuard(host);
+  const { onDesk, onDeskOrUnsent, onDeskOrWaiting, withSession } = deskGuard(host);
   const { chatRecords, paths, harnessCommands } = host;
   const installed = new Map<string, Promise<boolean>>();
 
@@ -812,14 +812,14 @@ export function sessionRoutes(host: Host): Route[] {
       method: "POST",
       path: "/api/plan",
       body: SessionBody.extend({ outcome: z.string() }),
-      handle: onDesk(({ res, body, sessionId }) => {
+      handle: onDeskOrWaiting(({ res, body, sessionId }) => {
         const provider = holderOf(sessionId);
         if (!provider.answerPlan) {
           sendJson(res, 400, { error: "No plan is waiting" });
           return;
         }
         provider.answerPlan(sessionId, body.outcome);
-        publish({ open: presentedOpen() });
+        publish({ open: presentedOpen(), ...activity() });
         sendJson(res, 200, { ok: true });
       }),
     }),
@@ -827,7 +827,7 @@ export function sessionRoutes(host: Host): Route[] {
       method: "POST",
       path: "/api/permission",
       body: SessionBody.extend({ optionId: z.string(), id: RequestId.optional() }),
-      handle: onDesk(({ res, body, sessionId }) => {
+      handle: onDeskOrWaiting(({ res, body, sessionId }) => {
         const { optionId } = body;
         if (!host.browser.answer(sessionId, optionId)) {
           const pending = holderOf(sessionId).getSession(sessionId)?.pendingPermission;
@@ -837,7 +837,7 @@ export function sessionRoutes(host: Host): Route[] {
           }
           holderOf(sessionId).answerPermission(sessionId, optionId);
         }
-        publish({ open: presentedOpen() });
+        publish({ open: presentedOpen(), ...activity() });
         sendJson(res, 200, { ok: true });
       }),
     }),
@@ -845,14 +845,14 @@ export function sessionRoutes(host: Host): Route[] {
       method: "POST",
       path: "/api/question",
       body: SessionBody.extend({ id: RequestId, action: z.string(), content: FormAnswers.optional() }),
-      handle: onDesk(({ res, body, sessionId }) => {
+      handle: onDeskOrWaiting(({ res, body, sessionId }) => {
         const pending = holderOf(sessionId).getSession(sessionId)?.pendingElicitation;
         if (!pending || String(pending.rpcId) !== String(body.id)) {
           sendJson(res, 409, { error: "That question is no longer waiting" });
           return;
         }
         holderOf(sessionId).answerElicitation(sessionId, body.action, body.content);
-        publish({ open: presentedOpen() });
+        publish({ open: presentedOpen(), ...activity() });
         sendJson(res, 200, { ok: true });
       }),
     }),

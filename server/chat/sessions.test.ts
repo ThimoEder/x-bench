@@ -57,6 +57,20 @@ test("listSessions returns titles for one working directory", () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+test("a summary that is mid-write or missing is skipped, and a missing root lists nothing", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "x-bench-partial-"));
+  writeSummary(root, "/work/app", "whole", { generated_title: "Whole", updated_at: "2026-09-22T12:00:00Z" });
+  const partial = path.join(root, encodeURIComponent("/work/app"), "partial");
+  mkdirSync(partial, { recursive: true });
+  writeFileSync(path.join(partial, "summary.json"), '{"info":');
+  mkdirSync(path.join(root, encodeURIComponent("/work/app"), "empty"), { recursive: true });
+  assert.deepEqual(listSessions("/work/app", root).map((row) => row.id), ["whole"]);
+  assert.deepEqual(sessionIndex(root).rows.map((row) => row.id), ["whole"]);
+  assert.deepEqual(listSessions("/work/app", path.join(root, "missing")), []);
+  assert.deepEqual(sessionIndex(path.join(root, "missing")), { rows: [], subagentIds: [] });
+  rmSync(root, { recursive: true, force: true });
+});
+
 test("a subagent session is not its own chat", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "x-bench-subagent-"));
   writeSummary(root, "/work/app", "parent", { generated_title: "Parent", updated_at: "2026-09-22T12:00:00Z" });

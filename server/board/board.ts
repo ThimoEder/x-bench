@@ -94,6 +94,8 @@ export interface BoardRequestLike {
   headers?: { range?: string };
 }
 
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
 const BoardItemId = z.union([z.number(), z.string()]);
 
 export const PageBody = z.object({
@@ -242,7 +244,7 @@ async function routeBoard<Res>(
   }
   if (method === "GET" && pathname === "/api/board/board") {
     const { adapter, board, binding } = boardFor(adapters, folderOf(url.searchParams.get("cwd"), ctx), files, ctx);
-    const extras = { capabilities: adapter.capabilities, source: adapter.label };
+    const extras = { capabilities: adapter.capabilities, source: adapter.label, folder: board.folder };
     // A local board loads as fast as its saved copy would.
     const savedBoards = adapter.capabilities.local ? undefined : files.savedBoards;
     // A saved board carries no activity stamp, so the load after it is a full one.

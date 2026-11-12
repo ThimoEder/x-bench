@@ -22,6 +22,7 @@ import { readSettings } from "./board/boardSettingsFile.ts";
 import { createSurfaces, type Surfaces } from "./surface.ts";
 import { boundFolder, presentTickets, readTickets } from "./board/tickets.ts";
 import { sameMarks, updateUnread } from "./chat/unread.ts";
+import { createWaitClock, waitCards, type Wait } from "./needs/needsYou.ts";
 import { planTools, type PlanHost } from "./chat/planTool.ts";
 import { chatsToClose, isBusy } from "./chat/idleChats.ts";
 import { contextWindows } from "./chat/context.ts";
@@ -42,7 +43,8 @@ import { sessionRoutes } from "./chat/routes.ts";
 import { reviewRoutes } from "./git/routes.ts";
 import { folderRoutes } from "./folder/routes.ts";
 import { sidebarRoutes } from "./sidebar/routes.ts";
-import { boardRoutes } from "./board/routes.ts";
+import { boardRoutes, boardServices } from "./board/routes.ts";
+import { boardCall, boardTools, type BoardCall } from "./board/boardTools.ts";
 import { deviceRoutes, openDeviceStream } from "./devices/routes.ts";
 import { openTerminalStream, terminalRoutes } from "./terminal/routes.ts";
 import { voiceRoutes } from "./voice/routes.ts";
@@ -187,6 +189,8 @@ export interface App {
   chatFolders: ChatFolders;
   routines: RoutineScheduler;
   routineTools: RoutineToolHost;
+  // A board request from the board tools, answered the way the board routes answer the page.
+  boardCall: BoardCall;
   // Asks every page to show a session, as a click on its notification does.
   revealSession(sessionId: string): void;
 }
@@ -226,7 +230,7 @@ export interface Host {
   presentedOpen(): OpenSession[];
   // A chat as the page shows it, for a copy that is not on the desk.
   presentedStored(session: SessionState, provider: Provider): OpenSession;
-  activity(): Pick<Snapshot, "working" | "attention" | "unread">;
+  activity(): Pick<Snapshot, "working" | "attention" | "unread" | "needsYou">;
   catalogSnapshot(): Pick<Snapshot, "projects" | "chats" | "tickets" | "notices">;
   // Every chat the sidebar knows, also in hidden projects, without the deleted ones.
   chatRows(): SessionIndexRow[];
@@ -264,6 +268,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
       working: [],
       attention: [],
       unread: [],
+      needsYou: [],
       usage: [],
       notices: readServiceNotices(),
       composer: composerCatalog(),
@@ -431,7 +436,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     }
     clearTimeout(store.catalogTimer);
     store.catalogTimer = setTimeout(() => {
-      publish({ open: presentedOpen(), ...catalogSnapshot() });
+      publish({ open: presentedOpen(), ...catalogSnapshot(), ...activity() });
     }, 200);
   });
 
@@ -523,7 +528,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
   function sessionRules(folder: string, ticket?: BoardTicket | null) {
     const state = readTickets(paths.tickets);
     const bound = boundFolder(state, folder, checkoutOf);
-    return rulesForBoard(state, bound, `http://127.0.0.1:${port}`, ticket, paths.launchToken(port), readSettings(paths.tickets, bound));
+    return rulesForBoard(state, bound, ticket, readSettings(paths.tickets, bound));
   }
 
   // A provider restarts an agent that exits. If it gives up, the next call here starts it again.
@@ -699,14 +704,33 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     return left.every((id, index) => id === right[index]);
   }
 
-  function activity(): Pick<Snapshot, "working" | "attention" | "unread"> {
+  const stampWaits = createWaitClock();
+
+  function needsYou(): Wait[] {
+    const chatHome = canonicalCwd(paths.chatHome);
+    const waits = providers.list().flatMap((provider) =>
+      provider.sessions().flatMap((session) => {
+        const prompt = browser.prompt(session.id);
+        const cards = waitCards(session, prompt ? { id: prompt.id, permission: presentPrompt(prompt) } : null);
+        if (!cards.length) return [];
+        const chat = canonicalCwd(session.cwd) === chatHome;
+        const home = sidebarHome(session.cwd);
+        const folder = chat ? "" : store.snapshot.projects.find((project) => project.cwd === home)?.name || path.basename(home);
+        const title = store.sidebarState.titles[session.id] || providers.catalogTitle(session.id) || "";
+        return cards.map((card) => ({ ...card, sessionId: session.id, cwd: session.cwd, title, provider: provider.id, folder, chat }));
+      }),
+    );
+    return stampWaits(waits);
+  }
+
+  function activity(): Pick<Snapshot, "working" | "attention" | "unread" | "needsYou"> {
     for (const id of desk.ids()) store.unreadIds.delete(id);
     const marks = providers.activityMarks();
     const working = [...new Set([...marks.working, ...store.diskWorking])];
     for (const id of working) store.unreadIds.delete(id);
     const attention = [...new Set([...marks.attention, ...browser.waitingSessions()])];
     for (const id of attention) store.unreadIds.delete(id);
-    return { working, attention, unread: [...store.unreadIds] };
+    return { working, attention, unread: [...store.unreadIds], needsYou: needsYou() };
   }
 
   function presentedOpen(): OpenSession[] {
@@ -1017,12 +1041,13 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     pollUsage,
     createWorktree,
   };
+  const board = boardServices(host);
   const routes: Route[] = [
     ...sessionRoutes(host),
     ...reviewRoutes(host),
     ...folderRoutes(host),
     ...sidebarRoutes(host),
-    ...boardRoutes(host),
+    ...boardRoutes(board),
     ...deviceRoutes(host),
     ...terminalRoutes(host),
     ...voiceRoutes(host),
@@ -1085,6 +1110,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     openTerminalStream: guardedTerminalStream,
     chatFolders,
     routines,
+    boardCall: boardCall(board),
     routineTools: {
       edits: routineEdits,
       defaults: (sessionId) => ({
@@ -1111,14 +1137,15 @@ export function builderFolder(chatHome: string) {
   return (cwd: string) => canonicalCwd(cwd) !== canonicalCwd(chatHome);
 }
 
-// The host's MCP tool groups: the plan, task suggestions, the chat id, the browser pane, the simulators, pr_status,
-// chat folders and routines.
-export function hostToolGroups({ sessionOf, setPlan, planTool, suggestions, browser, simulator, builds, devices, folders, routines }: { sessionOf: (id: string) => SessionState | null | undefined; setPlan: PlanHost["setPlan"]; planTool: () => boolean; suggestions: TaskSuggestions; browser: Browser; simulator: Simulator; builds: Builds; devices: Devices; folders?: ChatFolders; routines?: () => RoutineToolHost }) {
+// The host's MCP tool groups: the plan, task suggestions, the chat id, the board, the browser pane, the simulators,
+// pr_status, chat folders and routines.
+export function hostToolGroups({ sessionOf, setPlan, planTool, suggestions, browser, simulator, builds, devices, folders, routines, board }: { sessionOf: (id: string) => SessionState | null | undefined; setPlan: PlanHost["setPlan"]; planTool: () => boolean; suggestions: TaskSuggestions; browser: Browser; simulator: Simulator; builds: Builds; devices: Devices; folders?: ChatFolders; routines?: () => RoutineToolHost; board?: BoardCall }) {
   const modeOf = (id: string) => sessionOf(id)?.modeId ?? null;
   return [
     { ...planTools({ sessionOf, setPlan }), enabled: planTool },
     suggestTools(suggestions),
     chatIdTools(),
+    ...(board ? [boardTools(board, (id) => sessionOf(id)?.cwd)] : []),
     browserTools(browser, { modeOf }),
     simulatorTools(simulator, builds, browser, {
       modeOf,

@@ -18,14 +18,15 @@ export interface SidebarActions {
   removeBoard: (project: SidebarProject) => Promise<void>;
   showSettings: (tab?: SettingsTab) => void;
   showRoutines: () => void;
+  showNeeds: () => void;
 }
 
-export interface SidebarColumnProps extends Pick<SidebarProps, "snapshot" | "busy" | "draftCwd" | "routinesOpen" | "shownIds" | "phone"> {
+export interface SidebarColumnProps extends Pick<SidebarProps, "snapshot" | "busy" | "draftCwd" | "routinesOpen" | "needsOpen" | "shownIds" | "phone"> {
   layout: Layout;
   actions: SidebarActions;
 }
 
-export function SidebarColumn({ snapshot, busy, draftCwd, routinesOpen, shownIds, phone, layout, actions }: SidebarColumnProps) {
+export function SidebarColumn({ snapshot, busy, draftCwd, routinesOpen, needsOpen, shownIds, phone, layout, actions }: SidebarColumnProps) {
   const { call } = useDesk();
   const { sidebarOpen, setSidebarOpen, sidebarWidth, setSidebarWidth, dragging, beginResize, onSeparatorKey } = layout;
   const [showArchived, setShowArchived] = useState(() => readShowArchived());
@@ -49,6 +50,7 @@ export function SidebarColumn({ snapshot, busy, draftCwd, routinesOpen, shownIds
   const onOpenSetup = useStableCallback(fromSidebar(() => actions.showSettings()));
   const onOpenRemote = useStableCallback(fromSidebar(() => actions.showSettings("remote")));
   const onOpenRoutines = useStableCallback(fromSidebar(actions.showRoutines));
+  const onOpenNeeds = useStableCallback(fromSidebar(actions.showNeeds));
   const onRemoveBoard = useStableCallback((project: SidebarProject) => {
     actions.removeBoard(project).catch(() => {});
   });
@@ -77,6 +79,8 @@ export function SidebarColumn({ snapshot, busy, draftCwd, routinesOpen, shownIds
           onRemoveBoard={onRemoveBoard}
           onOpenRoutines={onOpenRoutines}
           routinesOpen={routinesOpen}
+          onOpenNeeds={onOpenNeeds}
+          needsOpen={needsOpen}
           call={call}
           shownIds={shownIds}
           phone={phone}

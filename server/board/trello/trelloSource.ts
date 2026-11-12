@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fields, maybe } from "../../../bridge/lenient.ts";
 import { BOARD_TEXT_RULE, clip } from "../boardText.ts";
 import type { BoardSettings } from "../boardSettings.ts";
-import { accessRule, apiHome, attachRule, commentRule, createRule, doneRule, editRule, fileRule, movesFor, oneLine, reviewRule, shareRule, startRule, ruleText, type BoardTicket } from "../sharedRules.ts";
+import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, oneLine, reviewRule, shareRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
 import { isHexId, ticketId } from "../ticketId.ts";
 
 // A Trello list the board shows as a column.
@@ -63,25 +63,24 @@ function boardColumns(value: unknown[] | undefined): BoardColumn[] {
   return columns;
 }
 
-function trelloRules(origin: string, binding: TrelloBinding, ticket: BoardTicket | null | undefined, tokenFile: string, settings: BoardSettings): string {
+function trelloRules(binding: TrelloBinding, ticket: BoardTicket | null | undefined, settings: BoardSettings): string {
   // Anyone who can edit the board names its lists, so the rules name a list only when its name is one they look for, such as Open.
   const names = binding.columns.map((column) => oneLine(column.title)).filter(Boolean);
   const open = names.find((name) => name.toLowerCase() === "open");
   const moves = movesFor(names.map((title) => ({ status: title, title })), settings);
   return ruleText([
-    `This folder has a Trello board. Move tickets through this app's local board API at ${apiHome(origin)}. It already holds the Trello connection. Do not call Trello directly.`,
-    ...accessRule(tokenFile),
-    "The columns on this board are its Trello lists. Read their names through the board API.",
+    toolsRule("a Trello board", "the Trello connection", "Trello"),
+    `The columns on this board are its Trello lists. Read their names with the ${BOARD_TOOLS.read} tool.`,
     createRule(moves.create?.title ?? (open || "the board's first list")),
     editRule(),
-    commentRule("<id>"),
-    'Move a ticket with POST /api/board/move and JSON {"taskId":"<id>","status":"<column>"}. status is a column name or a list id.',
-    ...startRule(moves.start, '"<id>"'),
-    ...reviewRule(moves.review, '"<id>"'),
-    fileRule("<id>", "Trello shows it on the card."),
+    commentRule(),
+    `Move a ticket with the ${BOARD_TOOLS.move} tool. status is a column name or a list id.`,
+    ...startRule(moves.start),
+    ...reviewRule(moves.review),
+    fileRule("Trello shows it on the card."),
     attachRule(),
     BOARD_TEXT_RULE,
-    doneRule(moves.done, '"<id>"'),
+    doneRule(moves.done),
     shareRule(),
   ], ticket);
 }

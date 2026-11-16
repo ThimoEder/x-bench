@@ -1,9 +1,8 @@
 // settings.json: { "keepAwake": false, "planTool": false }. Settings of the app itself that the host acts on, shared by every host on
 // the same home. The page's own preferences stay in its localStorage.
 
-import path from "node:path";
 import { z } from "zod";
-import { fileStamp, loadDurable, saveDurable } from "../jsonFile.ts";
+import { watchedJson } from "../jsonFile.ts";
 
 export interface AppSettings {
   keepAwake: boolean;
@@ -31,30 +30,16 @@ export interface AppSettingsStore {
 }
 
 export function createAppSettings(file: string): AppSettingsStore {
-  let cached: { stamp: string; value: AppSettings } | null = null;
-  let seenStamp = fileStamp(file);
-
-  function read(): AppSettings {
-    const stamp = fileStamp(file);
-    if (cached?.stamp !== stamp) cached = { stamp, value: loadDurable(file, parse, DEFAULTS) };
-    return { ...cached.value };
-  }
+  const json = watchedJson(file, parse, DEFAULTS, "change settings");
+  const read = (): AppSettings => ({ ...json.read() });
 
   return {
     read,
     save(change) {
       const next = { ...read(), ...change };
-      const saved = saveDurable(file, `${JSON.stringify(next, null, 2)}\n`, parse);
-      cached = null;
-      if (!saved) throw new Error(`${path.basename(file)} does not read. Fix or remove it to change settings.`);
-      seenStamp = fileStamp(file);
+      json.write(next);
       return next;
     },
-    changedOnDisk() {
-      const stamp = fileStamp(file);
-      if (stamp === seenStamp) return false;
-      seenStamp = stamp;
-      return true;
-    },
+    changedOnDisk: json.changedOnDisk,
   };
 }

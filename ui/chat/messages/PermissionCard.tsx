@@ -39,7 +39,7 @@ interface Choice {
 const LABELS: Record<string, string> = { allow_once: "Allow once", allow_always: "Always allow", reject_once: "Deny", reject_always: "Always deny" };
 const DONE: Record<string, string> = { allow_once: "Allowed once", allow_always: "Always allowed", reject_once: "Denied", reject_always: "Always denied" };
 // The app's own tools ask with their kind as the request's kind (server/chat/prompts.ts).
-const HOST_KINDS = new Set(["browser", "simulator", "routine"]);
+const HOST_KINDS = new Set(["browser", "simulator", "routine", "board"]);
 
 export function PermissionCard({ permission, call, actionPath = "/api/permission", actionField = "optionId", agent, diffs = [], cwd = "", onAnswered }: PermissionCardProps) {
   const planApproval = permission.plan !== undefined || permission.planMissing === true;

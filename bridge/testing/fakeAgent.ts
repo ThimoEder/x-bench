@@ -20,6 +20,9 @@
 //   IMAGE <p>   looks at the picture at path p, as Codex's view_image does: a tool linking to the file
 //   PLANDOC     writes a plan as Codex does in plan mode (plan_update, growing), then its steps
 //   PLANREVIEW  finishes Codex's plan review tool call, which has no title
+//   PLANCARD    asks to leave plan mode as Claude's ExitPlanMode does: a permission that carries the plan
+//               (request id "ask-1"), then says what came back
+//   TOOLS       thinks, then makes one Claude tool call of every role, one that fails, and a step list
 //   SELF        ends the turn, then runs one of its own and says the thread is idle, as Codex does
 //   AUTHFAIL    fails the turn because the account is signed out, and leaves nothing in the thread
 //   QUIET       ends the turn, then sends one more line, so the app sees a turn Codex no longer runs
@@ -444,6 +447,44 @@ export function createFakeAgent(dialect: FakeDialect, store: FakeStore, { send, 
           idle(sessionId);
           return;
         }
+        if (text.includes("PLANCARD")) {
+          asking = { promptId: message.id, sessionId };
+          send({
+            jsonrpc: "2.0",
+            id: "ask-1",
+            method: "session/request_permission",
+            params: {
+              sessionId,
+              toolCall: { toolCallId: "plan-1", title: "Ready to code?", kind: "switch_mode", rawInput: { plan: "# Rename the notes\n\n1. Read `notes.txt`\n2. Write the summary" } },
+              options: [
+                { optionId: "default", name: "Yes, and manually approve edits", kind: "allow_once" },
+                { optionId: "plan", name: "No, keep planning", kind: "reject_once" },
+              ],
+            },
+          });
+          return;
+        }
+        if (text.includes("TOOLS")) {
+          const cwd = store.sessions[sessionId]?.cwd ?? "";
+          const say = (text: string) => update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
+          const tool = (toolCallId: string, toolName: string, kind: string, title: string, rawInput: unknown, rest: Record<string, unknown> = {}) =>
+            update(sessionId, { sessionUpdate: "tool_call", toolCallId, kind, title, rawInput, status: "completed", _meta: { claudeCode: { toolName } }, ...rest });
+          update(sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "One call of every kind, then one that fails." } });
+          say("Here is every kind of tool call.\n\n");
+          tool("tour-read", "Read", "read", "Read notes.txt", { file_path: `${cwd}/notes.txt` }, { rawOutput: "Buy milk\nCall Ada" });
+          tool("tour-edit", "Edit", "edit", "Edit notes.txt", { file_path: `${cwd}/notes.txt` }, { content: [{ type: "diff", path: `${cwd}/notes.txt`, oldText: "Buy milk\nCall Ada\n", newText: "Buy oat milk\nCall Ada\n" }] });
+          tool("tour-shell", "Bash", "execute", "git status --short", { command: "git status --short", description: "Show what changed" }, { rawOutput: " M notes.txt" });
+          tool("tour-search", "Grep", "search", "Grep milk", { pattern: "milk", path: cwd }, { rawOutput: "notes.txt:1:Buy oat milk" });
+          tool("tour-web", "WebSearch", "fetch", "Search the web", { query: "oat milk shelf life" }, { rawOutput: "Seven to ten days once opened." });
+          tool("tour-agent", "Agent", "think", "Check the list", { description: "Check the list", subagent_type: "general-purpose" }, { rawOutput: "The list has two lines." });
+          tool("tour-agent-read", "Read", "read", "Read notes.txt", { file_path: `${cwd}/notes.txt` }, { _meta: { claudeCode: { toolName: "Read", parentToolUseId: "tour-agent" } } });
+          tool("tour-mcp", "mcp__x_bench__chat_id", "other", "chat_id", {}, { rawOutput: sessionId });
+          tool("tour-failed", "Bash", "execute", "npm test", { command: "npm test" }, { status: "failed", rawOutput: "npm error Missing script: \"test\"" });
+          update(sessionId, { sessionUpdate: "plan", entries: [{ content: "Read the notes", status: "completed", priority: "medium" }, { content: "Change the list", status: "in_progress", priority: "medium" }, { content: "Run the tests", status: "pending", priority: "medium" }] });
+          say("The tests did **not** run: `package.json` has no `test` script.");
+          reply(message.id, { stopReason: "end_turn" });
+          return;
+        }
         if (text.includes("PLANREVIEW")) {
           // Like the Codex adapter once the plan card is answered: the review's tool call, with no title.
           update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: "plan-review:item-1", status: "completed", rawOutput: "User approved the plan." });
@@ -601,7 +642,7 @@ export function createFakeAgent(dialect: FakeDialect, store: FakeStore, { send, 
         }
         if (text.includes("PERMISSION")) {
           waiting = { promptId: message.id, sessionId };
-          update(sessionId, { sessionUpdate: "tool_call", toolCallId: "call-1", title: "Write note.txt", kind: "edit", status: "pending" });
+          update(sessionId, { sessionUpdate: "tool_call", toolCallId: "call-1", title: "Write note.txt", kind: "edit", status: "pending", content: [{ type: "diff", path: "note.txt", oldText: "", newText: "Call Ada\n" }] });
           send({
             jsonrpc: "2.0",
             id: 0,

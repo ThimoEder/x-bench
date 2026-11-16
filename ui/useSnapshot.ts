@@ -32,6 +32,7 @@ const empty: PageSnapshot = {
   terminals: {},
   remote: REMOTE_OFF,
   routines: { scheduler: { here: false, takesPart: false, port: null }, desktop: false, list: [] },
+  queues: [],
   app: { desktop: false, keepAwake: false, planTool: false },
   reveal: null,
 };

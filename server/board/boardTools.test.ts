@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { answerMcp } from "../mcp/mcp.ts";
 import type { PageBody } from "./board.ts";
-import { boardCall, boardTools, type BoardCall, type BoardReply } from "./boardTools.ts";
+import { boardCall, boardTools, type BoardCall, type BoardReply, type BoardToolHost } from "./boardTools.ts";
 import { BOARD_TOOLS } from "./sharedRules.ts";
 
 type Sent = [method: string, route: string, body: PageBody];
@@ -19,11 +19,36 @@ function recorder(answer: (method: string, route: string) => BoardReply = () => 
   return { sent, call };
 }
 
-async function run(call: BoardCall, name: string, args: unknown, sessionId: string | null = "chat-1") {
+// A host whose chat runs in the given approval mode, and whose new chats start in starts.
+function hostIn(mode = "full", starts = "full", answer: "once" | "deny" = "once") {
+  const asked: string[] = [];
+  const made: string[][] = [];
+  const host: BoardToolHost = {
+    cwdOf: (id) => (id === "chat-1" ? "/work/my app" : null),
+    modeOf: () => mode,
+    prompts: {
+      allowed: () => false,
+      ask(_sessionId, request) {
+        asked.push(`${request.kind}: ${request.title}\n${request.detail}`);
+        return Promise.resolve(answer);
+      },
+    },
+    starts: () => ({
+      from: () => ({ cwd: "/work", provider: "agent-1", model: "model-x", effort: "high", mode: starts }),
+      worktree(...request) {
+        made.push(request);
+        return Promise.resolve("/trees/fix-it");
+      },
+    }),
+  };
+  return { host, asked, made };
+}
+
+async function run(call: BoardCall, name: string, args: unknown, sessionId: string | null = "chat-1", host = hostIn().host, signal = new AbortController().signal) {
   const reply = await answerMcp(
     { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
-    boardTools(call, (id) => (id === "chat-1" ? "/work/my app" : null)).tools,
-    { sessionId, signal: new AbortController().signal },
+    boardTools(call, host).tools,
+    { sessionId, signal },
   );
   assert.ok(reply && "result" in reply, "no result");
   const result = reply.result as { content: { text: string }[]; isError: boolean };
@@ -85,10 +110,92 @@ test("a board tool answers what the board answered, and refuses a malformed call
 });
 
 test("only attaching and deleting a file ask in the harness, and the tools stay out of the Chat tab", () => {
-  const group = boardTools(recorder().call, () => "/work");
+  const group = boardTools(recorder().call, hostIn().host);
   assert.deepEqual(group.tools.filter((tool) => !tool.trusted).map((tool) => tool.spec.name), [BOARD_TOOLS.attach, BOARD_TOOLS.deleteFile]);
   assert.deepEqual(group.tools.map((tool) => tool.spec.name).sort(), Object.values(BOARD_TOOLS).sort());
   assert.equal(group.builderOnly, true);
+});
+
+function threads() {
+  return recorder((_method, route) =>
+    route.includes("/brief") ? { status: 200, body: { draft: "Implement this ticket.", hidden: 0, title: "Fix it" } } : { status: 200, body: { sessionId: "chat-2", link: {} } });
+}
+
+test("starting a ticket makes a worktree of the project folder and opens a linked chat on the calling chat's provider, model and effort", async () => {
+  const { sent, call } = threads();
+  const { host, asked, made } = hostIn();
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "41" }, "chat-1", host), { text: '{"chatId":"chat-2","cwd":"/trees/fix-it"}', isError: false });
+  assert.deepEqual(made, [["/work", "Fix it", "agent-1"]]);
+  assert.deepEqual(sent, [
+    ["GET", `/api/board/tasks/41/brief?${CWD}`, {}],
+    ["POST", "/api/board/threads", { cwd: "/trees/fix-it", taskId: 41, prompt: "Implement this ticket.", session: { provider: "agent-1", model: "model-x", effort: "high" } }],
+  ]);
+  assert.deepEqual(asked, []);
+
+  sent.length = 0;
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: 41, worktree: false, prompt: " Only the tests. " }, "chat-1", host), { text: '{"chatId":"chat-2","cwd":"/work"}', isError: false });
+  assert.equal(made.length, 1);
+  assert.deepEqual(sent[1], ["POST", "/api/board/threads", { cwd: "/work", taskId: 41, prompt: "Only the tests.", session: { provider: "agent-1", model: "model-x", effort: "high" } }]);
+});
+
+test("starting a ticket asks the person unless the chat's mode goes ahead, and a new chat in Always approve asks from any other mode", async () => {
+  const denied = hostIn("default", "default", "deny");
+  const { sent, call } = threads();
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "41" }, "chat-1", denied.host), { text: "The person declined to start this chat. Ask them how to go on.", isError: true });
+  assert.deepEqual(denied.asked, ["board: Start ticket 41 in a new chat\n/work in a worktree | agent-1 | default\nPrompt:\nImplement this ticket."]);
+  assert.deepEqual(denied.made, []);
+  assert.equal(sent.length, 1);
+
+  const auto = hostIn("auto", "auto");
+  await run(call, BOARD_TOOLS.start, { ticket: "41" }, "chat-1", auto.host);
+  assert.deepEqual(auto.asked, []);
+
+  const raised = hostIn("auto", "full");
+  assert.equal((await run(call, BOARD_TOOLS.start, { ticket: "41", worktree: false }, "chat-1", raised.host)).isError, false);
+  assert.deepEqual(raised.asked, ["board: Start ticket 41 in a new chat\n/work | agent-1 | full\nPrompt:\nImplement this ticket."]);
+});
+
+test("a start cancelled while its worktree is made opens no chat", async () => {
+  const { sent, call } = threads();
+  const { host } = hostIn();
+  const stop = new AbortController();
+  const starts = host.starts();
+  const cancelled: BoardToolHost = {
+    ...host,
+    starts: () => ({
+      ...starts,
+      worktree(...request) {
+        stop.abort();
+        return starts.worktree(...request);
+      },
+    }),
+  };
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "41" }, "chat-1", cancelled, stop.signal), {
+    text: "The call was cancelled, so no chat was started. The worktree is at /trees/fix-it.",
+    isError: true,
+  });
+  assert.equal(sent.length, 1);
+});
+
+test("a start the board refuses after its worktree is made names the worktree", async () => {
+  const { call } = recorder((_method, route) =>
+    route.includes("/brief") ? { status: 200, body: { draft: "Implement this ticket.", hidden: 0, title: "Fix it" } } : { status: 409, body: { error: "The provider is off", code: "provider-off" } });
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "41" }), {
+    text: 'The board answered 409: {"error":"The provider is off","code":"provider-off"} The worktree is at /trees/fix-it.',
+    isError: true,
+  });
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "41", worktree: false }), {
+    text: 'The board answered 409: {"error":"The provider is off","code":"provider-off"}',
+    isError: true,
+  });
+});
+
+test("a ticket the board does not answer starts nothing", async () => {
+  const { sent, call } = recorder(() => ({ status: 404, body: { error: "Ticket not found", code: null } }));
+  const { host, asked, made } = hostIn("default");
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "41" }, "chat-1", host), { text: 'The board answered 404: {"error":"Ticket not found","code":null}', isError: true });
+  assert.deepEqual(await run(call, BOARD_TOOLS.start, { ticket: "../x" }, "chat-1", host), { text: "Give the ticket's id.", isError: true });
+  assert.deepEqual([sent.length, asked, made], [1, [], []]);
 });
 
 test("a file goes up from its path with its own name, and comes down under the name the board keeps", async () => {

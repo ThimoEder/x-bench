@@ -47,6 +47,8 @@ export interface BoardThreadRequest {
   // What the start sheet picked in the model menus. Empty values mean the default.
   picks: SessionPicks;
   prompt: string;
+  // Goes into the new chat's system prompt, after the board rules.
+  note: string;
 }
 
 export interface SessionPicks {
@@ -122,6 +124,8 @@ export const PageBody = z.object({
   note: z.string().nullish(),
   body: z.string().optional(),
   prompt: z.string().optional(),
+  // A thread's own lines for its system prompt, which the host sets for a queue run's chats.
+  rules: z.string().optional(),
   order: z.array(BoardItemId).optional(),
   fields: z.record(z.string(), z.string()).optional(),
   done: z.boolean().optional(),
@@ -384,12 +388,18 @@ async function routeBoard<Res>(
     const taskId = ticketId(relation[1]);
     if (taskId === null) throw boardError(400, "Choose a ticket");
     const adapter = adapterForTicket(adapters, taskId, input.cwd, files, ctx);
-    if (!adapter.changeRelation) throw boardError(400, "This board has no ticket relations", adapter.provider);
+    if (!adapter.changeRelation || !adapter.capabilities.relations.length) throw boardError(400, "This board has no ticket relations", adapter.provider);
     const otherId = ticketId(method === "PUT" ? input.otherTaskId : relation[2]);
     if (otherId === null || !adapter.claims(otherId)) throw boardError(400, "Choose the other ticket");
     if (String(otherId) === String(taskId)) throw boardError(400, "A ticket can't relate to itself");
     const stored = storedRelation(taskId, otherId, method === "PUT" ? input.kind : relation[3]);
     if (!stored) throw boardError(400, "Choose a relation kind, such as parent, subtask or blocks");
+    const kinds = adapter.capabilities.relations;
+    if (!kinds.some((kind) => kind === stored.spelling)) {
+      throw boardError(400, `${adapter.label} tickets don't relate as ${stored.spelling}. They relate as ${kinds.join(", ")}.`, adapter.provider);
+    }
+    // The reply is this ticket, so one the board can't read is refused before anything changes.
+    await adapter.readTicket(taskId);
     await adapter.changeRelation(stored.taskId, stored.otherId, stored.kind, method === "PUT");
     ctx.sendJson(res, 200, { task: await adapter.readTicket(taskId) });
     return;
@@ -638,6 +648,7 @@ async function openThread(adapters: BoardAdapter[], body: PageBody, files: Board
     ticket: adapter.threadTicket(task),
     picks: { provider: picks.provider ?? "", model: picks.model ?? "", effort: picks.effort ?? "" },
     prompt,
+    note: body.rules?.trim() ?? "",
   });
   const link = linkThread(links, opened.sessionId, task, taskId, columnColors({ adapter, board }, files));
   opened.send();
@@ -675,11 +686,11 @@ function moveExtra(input: PageBody): MoveExtra {
 }
 
 // The relation as it is stored. A flipped spelling, such as subtask, is stored from the other ticket.
-function storedRelation(taskId: TicketId, otherId: TicketId, kind: string | undefined): { taskId: TicketId; otherId: TicketId; kind: RelationKind } | null {
+function storedRelation(taskId: TicketId, otherId: TicketId, kind: string | undefined): { taskId: TicketId; otherId: TicketId; kind: RelationKind; spelling: string } | null {
   const named = relationKinds.find((item) => item === kind);
-  if (named) return { taskId, otherId, kind: named };
+  if (named) return { taskId, otherId, kind: named, spelling: named };
   const flipped = kind === undefined ? undefined : flippedKinds.get(kind);
-  return flipped ? { taskId: otherId, otherId: taskId, kind: flipped } : null;
+  return kind && flipped ? { taskId: otherId, otherId: taskId, kind: flipped, spelling: kind } : null;
 }
 
 // A label id from the route: SAK's number, or Trello's id or a Jira label, which is a word with a letter or

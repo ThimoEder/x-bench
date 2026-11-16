@@ -1,3 +1,14 @@
+import { EVENT_TAG, type EventKind } from "../../../server/queue/queuePlan.ts";
+
+// A queue run's message to its main chat, which draws as a line of its own.
+const QUEUE_EVENT = new RegExp(`<${EVENT_TAG} kind="(\\w+)">([\\s\\S]*?)</${EVENT_TAG}>`, "g");
+const QUEUE_EVENTS: Record<EventKind, Outcome> = {
+  finished: { title: "Ticket finished", tone: "ok" },
+  waiting: { title: "Ticket waits on you", tone: "quiet" },
+  stopped: { title: "Ticket's turn ended", tone: "quiet" },
+  failed: { title: "Ticket did not start", tone: "fail" },
+};
+
 const BLOCK = /<(system-reminder|task-notification)>([\s\S]*?)<\/\1>/gi;
 const OPENING = /<(system-reminder|task-notification)>/i;
 const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/gi;
@@ -18,11 +29,16 @@ export interface UserMessageView {
 // Any other note that is the whole message stays out of the thread.
 export function userMessageView(text: unknown): UserMessageView {
   const raw = typeof text === "string" ? text : "";
-  if (!OPENING.test(raw)) {
+  if (!OPENING.test(raw) && !raw.includes(`<${EVENT_TAG} `)) {
     return { spoken: raw.trim(), notice: null, harnessOnly: false };
   }
   const notices: (TaskNotice | null)[] = [];
   const spoken = raw
+    .replace(QUEUE_EVENT, (_, kind: string, body: string) => {
+      const known = Object.entries(QUEUE_EVENTS).find(([name]) => name === kind)?.[1];
+      notices.push({ ...(known ?? { title: "Queue run", tone: "quiet" as const }), detail: body.trim() });
+      return "";
+    })
     .replace(BLOCK, (_, tag: string, body: string | undefined) => {
       const inner = String(body || "").trim();
       notices.push(tag.toLowerCase() === "task-notification" ? notificationNotice(inner) : reminderNotice(inner));

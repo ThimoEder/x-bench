@@ -44,6 +44,7 @@ const { createDesk } = await import("./desk.ts");
 const { createDevices } = await import("./devices/devices.ts");
 const createVoice = () => voiceIn({ modelDir: modelDir(paths.voiceModels) });
 const { createTaskSuggestions, suggestTools } = await import("./board/taskSuggestions.ts");
+const { createArchiveOffers, offerArchiveTools } = await import("./board/archiveOffer.ts");
 const { createHostTools } = await import("./mcp/mcp.ts");
 const { chatIdTools } = await import("./board/ticketLinks.ts");
 const { browserTools } = await import("./browser/browserTools.ts");
@@ -176,7 +177,8 @@ let hosts = 0;
 // others are providers after Grok, the default. suggestions gives Grok's sessions the host's MCP server.
 function startHost(script: Record<string, Handler> = {}, cwd = home, others: Provider[] = [], settings = memoryProviderSettings(), suggestions?: TaskSuggestions, browser?: Browser): Host {
   const transports: FakeGrok[] = [];
-  const hostTools = suggestions ? createHostTools([suggestTools(suggestions), chatIdTools(), ...(browser ? [browserTools(browser)] : [])]) : undefined;
+  const archiveOffers = createArchiveOffers(paths.archiveOffers);
+  const hostTools = suggestions ? createHostTools([suggestTools(suggestions), offerArchiveTools(archiveOffers), chatIdTools(), ...(browser ? [browserTools(browser)] : [])]) : undefined;
   const bridge = new GrokProvider({
     ...(hostTools ? { sessionTools: hostTools.sessionTools({ port: PORT, token: TOKEN }) } : {}),
     connect() {
@@ -200,6 +202,7 @@ function startHost(script: Record<string, Handler> = {}, cwd = home, others: Pro
     token: TOKEN,
     cwd,
     ...(suggestions ? { suggestions } : {}),
+    archiveOffers,
     ...(browser ? { browser } : {}),
     ...(hostTools ? { hostTools } : {}),
     terminals,
@@ -1941,7 +1944,7 @@ async function mcp(app: App, method: string, url: string, body?: unknown, header
   return { status: res.statusCode, body: res.text ? (JSON.parse(res.text) as unknown) : null };
 }
 
-test("a session's agent suggests a task through the host's MCP server, and the page dismisses it", async () => {
+test("a session's agent suggests a task and offers to archive through the host's MCP server, and the page answers both", async () => {
   const file = path.join(home, "suggestions-test.json");
   const suggestions = createTaskSuggestions(file);
   const host = startHost({}, home, [], memoryProviderSettings(), suggestions);
@@ -1985,6 +1988,12 @@ test("a session's agent suggests a task through the host's MCP server, and the p
     assert.deepEqual(await call(host.app, "POST", "/api/suggestions/dismiss", { sessionId: "s1", id }), { status: 200, body: { ok: true } });
     assert.deepEqual(host.app.store.snapshot.open[0]?.suggestions, []);
 
+    const offer = () => mcp(host.app, "POST", url.pathname, { jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "offer_archive", arguments: {} } });
+    await offer();
+    assert.equal(host.app.store.snapshot.open[0]?.archiveOffer, true);
+    assert.deepEqual(await call(host.app, "POST", "/api/archive/keep", { sessionId: "s1" }), { status: 200, body: { ok: true } });
+    assert.equal(host.app.store.snapshot.open[0]?.archiveOffer, undefined);
+
     // A loaded session gets its own key, bound to it from the start.
     const LOADED = "0199aa00-1111-7222-8333-444455556666";
     await call(host.app, "POST", "/api/load", { sessionId: LOADED, cwd: home, beside: true });
@@ -1994,13 +2003,21 @@ test("a session's agent suggests a task through the host's MCP server, and the p
     const loadPath = new URL(loadServer.url).pathname;
     await mcp(host.app, "POST", loadPath, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "suggest_task", arguments: { title: "Add a test", summary: "No cover.", prompt: "Test it." } } });
     assert.equal(suggestions.list(LOADED).length, 1);
+    await mcp(host.app, "POST", loadPath, { jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "offer_archive", arguments: {} } });
+    assert.equal(createArchiveOffers(paths.archiveOffers).has(LOADED), true);
     const loadedName = await mcp(host.app, "POST", loadPath, { jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "chat_id", arguments: {} } });
     assert.deepEqual(isRecord(loadedName.body) && loadedName.body.result, { content: [{ type: "text", text: LOADED }], isError: false });
 
     // Deleting the session drops its suggestions and stops its key.
     assert.equal((await call(host.app, "POST", "/api/delete", { sessionId: LOADED })).status, 200);
     assert.deepEqual(suggestions.list(LOADED), []);
+    assert.equal(createArchiveOffers(paths.archiveOffers).has(LOADED), false);
     assert.equal((await mcp(host.app, "POST", loadPath, { jsonrpc: "2.0", id: 4, method: "ping" })).status, 404);
+
+    // Archiving the chat answers its offer.
+    await offer();
+    assert.equal((await call(host.app, "POST", "/api/archive", { sessionId: "s1" })).status, 200);
+    assert.equal(createArchiveOffers(paths.archiveOffers).has("s1"), false);
   } finally {
     await host.stop();
   }
@@ -2437,6 +2454,87 @@ test("a suggested task whose chat does not open puts the folder back, and one st
     assert.equal((await first).status, 200);
   } finally {
     await host.stop();
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("the board's start tool opens a ticket's chat in a new worktree, in the folder that has the calling chat's board, linked to the ticket", async () => {
+  const { writeConnection } = await import("./board/sak/sakClient.ts");
+  const { bindBoard, emptyTickets, readTickets, writeTickets } = await import("./board/tickets.ts");
+  const { boardTools } = await import("./board/boardTools.ts");
+  const { answerMcp } = await import("./mcp/mcp.ts");
+  const task = { id: 41, project_id: 7, title: "Ship it", description: "", note: "", attributes: { status: "open" } };
+  const sak = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    if (req.method === "GET" && req.url === "/api/tasks/41") res.end(JSON.stringify(task));
+    else res.writeHead(404).end("{}");
+  });
+  await new Promise<void>((resolve) => {
+    sak.listen(0, "127.0.0.1", resolve);
+  });
+  const address = sak.address();
+  assert.ok(address && typeof address !== "string", "no port");
+  const repo = makeRepo();
+  const boarded = path.join(repo, "app");
+  fs.mkdirSync(boarded);
+  fs.writeFileSync(path.join(boarded, "note.txt"), "one\n");
+  execFileSync("git", ["add", "app"], { cwd: repo });
+  execFileSync("git", ["commit", "-q", "-m", "app"], { cwd: repo });
+  const callerTree = `${repo}-tree`;
+  execFileSync("git", ["worktree", "add", "-q", "-b", "topic", callerTree], { cwd: repo, stdio: "ignore" });
+  execFileSync("git", ["checkout", "-q", "-b", "feature"], { cwd: repo });
+  writeConnection({ baseUrl: `http://127.0.0.1:${address.port}`, token: "sak_test" }, path.join(home, ".x-bench", "sak.json"));
+  const tickets = path.join(home, ".x-bench", "tickets.json");
+  writeTickets(bindBoard(emptyTickets(), boarded, { provider: "sak", projectId: 7, title: "App" }), tickets);
+  const host = startHost({}, repo);
+  let tree = "";
+  try {
+    assert.equal((await call(host.app, "POST", "/api/session", { cwd: path.join(callerTree, "app") })).status, 200);
+    const chat = host.app.store.snapshot.open.at(-1);
+    assert.ok(chat, "no chat");
+    const asked: string[] = [];
+    const tools = boardTools(host.app.boardCall, {
+      cwdOf: (id) => host.session(id).cwd,
+      modeOf: () => "default",
+      prompts: {
+        allowed: () => false,
+        ask(_sessionId, request) {
+          asked.push(request.detail);
+          return Promise.resolve("once");
+        },
+      },
+      starts: () => host.app.ticketStarts,
+    }).tools;
+    const start = (ticket: number) => answerMcp({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "board_start_ticket", arguments: { ticket } } }, tools, { sessionId: chat.id, signal: new AbortController().signal });
+    const reply = await start(41);
+    assert.ok(reply && "result" in reply, "no result");
+    const result = reply.result as { content: { text: string }[]; isError: boolean };
+    assert.equal(result.isError, false, result.content[0]?.text);
+    const started = JSON.parse(result.content[0]?.text ?? "{}") as { chatId: string; cwd: string };
+    tree = started.cwd;
+    assert.match(asked[0] ?? "", new RegExp(`^${boarded} in a worktree \\| grok \\| \\w+\\nPrompt:\\nImplement this ticket\\.`));
+
+    assert.equal(execFileSync("git", ["-C", tree, "branch", "--show-current"], { encoding: "utf8" }).trim(), "grok/ship-it");
+    assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd: repo, encoding: "utf8" }).trim(), "feature");
+    const thread = host.grok().sent.filter((message) => message.method === "session/new").at(-1);
+    assert.equal(thread?.params?.cwd, fs.realpathSync(tree));
+    assert.equal(path.basename(tree), "app");
+    assert.match(JSON.stringify(thread?.params?._meta ?? {}), /This thread is for ticket 41/);
+    await waitFor(() => host.grok().sent.some((message) => message.method === "session/prompt" && message.params?.sessionId === started.chatId));
+    assert.deepEqual(readTickets(tickets).links.map((link) => [link.sessionId, link.taskId]), [[started.chatId, 41]]);
+    assert.equal(host.app.store.sidebarState.titles[started.chatId], "Ship it");
+    assert.equal(host.app.store.snapshot.open.at(-1)?.id, chat.id, "the calling chat stays open");
+
+    const missing = await start(42);
+    assert.ok(missing && "result" in missing && (missing.result as { isError: boolean }).isError);
+    assert.equal(asked.length, 1);
+  } finally {
+    await host.stop();
+    sak.close();
+    fs.rmSync(tickets, { force: true });
+    fs.rmSync(path.join(home, ".x-bench", "sak.json"), { force: true });
+    if (tree) fs.rmSync(path.dirname(tree), { recursive: true, force: true });
+    fs.rmSync(callerTree, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });
   }
 });

@@ -34,6 +34,8 @@ import type { Voice } from "./voice/voice.ts";
 import { createQuietVolume, type QuietVolume } from "./voice/quietVolume.ts";
 import type { Devices } from "./devices/devices.ts";
 import { messageOf, sendJson, statusOf } from "./http.ts";
+import { latestMain } from "./git/branch.ts";
+import { gitError } from "./git/git.ts";
 import { createHarnessWorktree, type CreatedWorktree, type WorktreeOptions } from "./git/worktree.ts";
 import { refuseRequest } from "./apiGuard.ts";
 import type { XBenchPaths } from "./paths.ts";
@@ -44,7 +46,7 @@ import { reviewRoutes } from "./git/routes.ts";
 import { folderRoutes } from "./folder/routes.ts";
 import { sidebarRoutes } from "./sidebar/routes.ts";
 import { boardRoutes, boardServices } from "./board/routes.ts";
-import { boardCall, boardTools, type BoardCall } from "./board/boardTools.ts";
+import { boardCall, boardTools, type BoardCall, type TicketStarts } from "./board/boardTools.ts";
 import { deviceRoutes, openDeviceStream } from "./devices/routes.ts";
 import { openTerminalStream, terminalRoutes } from "./terminal/routes.ts";
 import { voiceRoutes } from "./voice/routes.ts";
@@ -55,12 +57,13 @@ import { browserRoutes, openBrowserLink } from "./browser/routes.ts";
 import { remoteRoutes } from "./remote/routes.ts";
 import type { Remote } from "./remote/remote.ts";
 import { createTaskSuggestions, suggestTools, type TaskSuggestions } from "./board/taskSuggestions.ts";
+import { createArchiveOffers, offerArchiveTools, type ArchiveOffers } from "./board/archiveOffer.ts";
 import { chatIdTools } from "./board/ticketLinks.ts";
 import { createBrowser, type Browser } from "./browser/browser.ts";
 import type { HostPrompt } from "./chat/prompts.ts";
 import { browserTools } from "./browser/browserTools.ts";
 import { createHostTools, type HostTools } from "./mcp/mcp.ts";
-import { pullRequestTools } from "./git/pullRequest.ts";
+import { pullRequestTools, readPullRequest } from "./git/pullRequest.ts";
 import { createSimulator, type Simulator } from "./devices/simulator.ts";
 import { simulatorTools } from "./devices/ios/simulatorTools.ts";
 import { createBuilds, type Builds } from "./devices/ios/xcodeBuild.ts";
@@ -71,6 +74,10 @@ import type { Switching } from "./chat/switchChat.ts";
 import { stripHandoff, withoutSummaryTurns } from "./chat/handoff.ts";
 import { createHarnessCommands, type HarnessCommandsStore } from "./chat/harnessCommands.ts";
 import { routineRoutes } from "./routines/routes.ts";
+import { queueRoutes } from "./queue/routes.ts";
+import { createQueueStore } from "./queue/queues.ts";
+import { createQueueRunner, type QueueRunner } from "./queue/queueRunner.ts";
+import { queueTools } from "./queue/queueTools.ts";
 import { createRoutineStore, type RoutineStore } from "./routines/routines.ts";
 import { createRoutineEdits, type RoutineEdits } from "./routines/routineEdits.ts";
 import { routineTools, type RoutineToolHost } from "./routines/routineTools.ts";
@@ -106,6 +113,7 @@ export interface AppOptions {
   // The folder the page starts in.
   cwd: string;
   suggestions?: TaskSuggestions;
+  archiveOffers?: ArchiveOffers;
   browser?: Browser;
   simulator?: Simulator;
   builds?: Builds;
@@ -189,8 +197,10 @@ export interface App {
   chatFolders: ChatFolders;
   routines: RoutineScheduler;
   routineTools: RoutineToolHost;
+  queues: QueueRunner;
   // A board request from the board tools, answered the way the board routes answer the page.
   boardCall: BoardCall;
+  ticketStarts: TicketStarts;
   // Asks every page to show a session, as a click on its notification does.
   revealSession(sessionId: string): void;
 }
@@ -205,6 +215,7 @@ export interface Host {
   devices: Devices;
   store: Store;
   suggestions: TaskSuggestions;
+  archiveOffers: ArchiveOffers;
   browser: Browser;
   simulator: Simulator;
   hostTools: HostTools;
@@ -237,7 +248,8 @@ export interface Host {
   safeSessions(folder: string): SessionListRow[];
   // Starts the provider if it is not running, and publishes its status.
   ensureProvider(provider: Provider): Promise<void>;
-  sessionRules(folder: string, ticket?: BoardTicket | null): string;
+  // sessionId names a chat that loads again, which gets its queue run's lines back.
+  sessionRules(folder: string, ticket?: BoardTicket | null, sessionId?: string): string;
   sidebarHome(folder: string): string;
   checkoutOf(folder: string): string;
   goneFolderOf(sessionId: string, folder: string): Promise<GoneFolder>;
@@ -246,10 +258,11 @@ export interface Host {
   refreshUsage(provider: Provider): void;
   // Reads every enabled provider's usage while a page is open, except one read within the last minute.
   pollUsage(): void;
+  // An empty gitRef is the folder's default branch, fetched first, or HEAD when it has none.
   createWorktree(folder: string, gitRef: string, providerId: string, options?: Pick<WorktreeOptions, "name" | "branch">): Promise<CreatedWorktree>;
 }
 
-export function createApp({ providers, desk, voice, quietVolume = createQuietVolume(), devices, port, token, paths, savedUsage = createUsageStore(paths.usage), harnessCommands = createHarnessCommands(paths.harnessCommands), sak = createHostSak(paths.sak), cwd, suggestions = createTaskSuggestions(paths.suggestions), browser = createBrowser(paths.browserPages), simulator = createSimulator({ logDir: paths.simulatorLogs }), builds = createBuilds({ dir: paths.simulatorBuilds }), hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, browser, simulator, builds, devices }), { builder: builderFolder(paths.chatHome) }), terminals = createTerminals(), remote, routines: routineOptions = {}, appSettings = createAppSettings(paths.appSettings), keepAwake }: AppOptions): App {
+export function createApp({ providers, desk, voice, quietVolume = createQuietVolume(), devices, port, token, paths, savedUsage = createUsageStore(paths.usage), harnessCommands = createHarnessCommands(paths.harnessCommands), sak = createHostSak(paths.sak), cwd, suggestions = createTaskSuggestions(paths.suggestions), archiveOffers = createArchiveOffers(paths.archiveOffers), browser = createBrowser(paths.browserPages), simulator = createSimulator({ logDir: paths.simulatorLogs }), builds = createBuilds({ dir: paths.simulatorBuilds }), hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, archiveOffers, browser, simulator, builds, devices }), { builder: builderFolder(paths.chatHome) }), terminals = createTerminals(), remote, routines: routineOptions = {}, appSettings = createAppSettings(paths.appSettings), keepAwake }: AppOptions): App {
   const chatRecords: ChatRecords = providers.records;
   const surfaces = createSurfaces(desk, { alive: (id) => Boolean(providers.getSession(id)) });
   const locateProject = createProjectLocator();
@@ -278,6 +291,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
       terminals: {},
       remote: remote ? remote.state() : REMOTE_OFF,
       routines: { scheduler: { here: false, takesPart: false, port: null }, desktop: false, list: [] },
+      queues: [],
       app: { desktop: Boolean(keepAwake), keepAwake: false, planTool: false },
       reveal: null,
     },
@@ -324,6 +338,9 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
   routineStore.onChange(() => routines.refresh());
   const routineEdits = createRoutineEdits({ providers, store: routineStore, scheduler: routines, chatHome: paths.chatHome });
   let revealNonce = 0;
+  const queueStore = createQueueStore(paths.queues);
+  // Set once the board services exist, which the session listeners above come before.
+  let queues: QueueRunner | undefined;
   // What keepAwake was last told, so a repeated setting sends nothing.
   let keptAwake: boolean | null = null;
 
@@ -404,6 +421,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
       }
     }
     routines.sessionChanged(session);
+    queues?.sessionChanged(session);
     const wasRunning = noteActivity(session);
     const becameIdle = wasRunning && session.status === "idle";
     if (becameIdle) refreshUsage(provider);
@@ -441,11 +459,15 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
   });
 
   suggestions.onChange(() => publish({ open: presentedOpen() }));
+  archiveOffers.onChange(() => publish({ open: presentedOpen() }));
   // Tabs change with every load and title, and several times per agent action, so their publishes share a frame.
   let browserTimer: ReturnType<typeof setTimeout> | undefined;
   let promptsChanged = false;
   browser.onChange((prompts) => {
-    if (prompts) routines.promptsChanged();
+    if (prompts) {
+      routines.promptsChanged();
+      queues?.promptsChanged();
+    }
     promptsChanged ||= prompts;
     if (browserTimer) return;
     browserTimer = setTimeout(() => {
@@ -460,7 +482,8 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
   terminals.onChange(() => publish({ terminals: terminals.views() }));
 
   function followSuggestions() {
-    if (suggestions.changedOnDisk()) publish({ open: presentedOpen() });
+    const changed = [suggestions.changedOnDisk(), archiveOffers.changedOnDisk()];
+    if (changed.includes(true)) publish({ open: presentedOpen() });
   }
 
   function refreshUsage(provider: Provider) {
@@ -525,10 +548,11 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     publish({ notices });
   }
 
-  function sessionRules(folder: string, ticket?: BoardTicket | null) {
+  function sessionRules(folder: string, ticket?: BoardTicket | null, sessionId?: string) {
     const state = readTickets(paths.tickets);
     const bound = boundFolder(state, folder, checkoutOf);
-    return rulesForBoard(state, bound, ticket, readSettings(paths.tickets, bound));
+    const queue = sessionId ? (queues?.rulesOf(sessionId) ?? "") : "";
+    return [rulesForBoard(state, bound, ticket, readSettings(paths.tickets, bound)), queue].filter(Boolean).join("\n\n");
   }
 
   // A provider restarts an agent that exits. If it gives up, the next call here starts it again.
@@ -597,6 +621,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     const edited = routineStore.changedOnDisk();
     const ran = routineRuns.changedOnDisk();
     if (edited || ran) routines.refresh();
+    if (queueStore.changedOnDisk()) queues?.refresh();
     if (ran) publish({ ...catalogSnapshot() });
     if (appSettings.changedOnDisk()) followAppSettings();
   }
@@ -747,7 +772,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
         const gone = store.goneFolders.get(id);
         // A routine run is in no sidebar list, so its name from sidebar.json comes along here.
         const title = store.sidebarState.titles[id] || providers.catalogTitle(id);
-        return { ...presented, title, provider: provider.id, suggestions: suggestions.list(id), ...(gone ? { folderGone: gone } : {}) };
+        return { ...presented, title, provider: provider.id, suggestions: suggestions.list(id), ...(archiveOffers.has(id) ? { archiveOffer: true as const } : {}), ...(gone ? { folderGone: gone } : {}) };
       })
       .filter((view): view is OpenSession => Boolean(view));
   }
@@ -992,8 +1017,8 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     }
   }
 
-  function createWorktree(folder: string, gitRef: string, providerId: string, options: Pick<WorktreeOptions, "name" | "branch"> = {}) {
-    return createHarnessWorktree(providerId, folder, gitRef, { ...options, root: paths.worktrees });
+  async function createWorktree(folder: string, gitRef: string, providerId: string, options: Pick<WorktreeOptions, "name" | "branch"> = {}) {
+    return createHarnessWorktree(providerId, folder, gitRef || (await latestMain(folder).catch(() => "HEAD")), { ...options, root: paths.worktrees });
   }
 
   const host: Host = {
@@ -1005,6 +1030,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     devices,
     store,
     suggestions,
+    archiveOffers,
     browser,
     simulator,
     hostTools,
@@ -1042,6 +1068,43 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     createWorktree,
   };
   const board = boardServices(host);
+  const boardRequest = boardCall(board);
+  const queueRunner = createQueueRunner({
+    store: queueStore,
+    host: {
+      port,
+      adopts: Boolean(routineOptions.schedule),
+      board: boardRequest,
+      session: (sessionId) => providers.getSession(sessionId) ?? null,
+      hostPrompt: (sessionId) => Boolean(browser.prompt(sessionId)),
+      async worktree(folder, gitRef, providerId, name) {
+        try {
+          const made = await createWorktree(folder, gitRef, (providers.get(providerId) ?? providers.defaultProvider()).id, { name });
+          return { path: canonicalCwd(made.path), branch: made.label };
+        } catch (error) {
+          throw new Error(gitError(error) || messageOf(error));
+        }
+      },
+      async pullRequest(folder) {
+        const pr = await readPullRequest(folder);
+        return pr ? { number: pr.number, url: pr.url, status: pr.status, ...(pr.draft ? { draft: true } : {}) } : null;
+      },
+      async tell(sessionId, folder, text) {
+        const provider = providers.forSession(sessionId);
+        await ensureProvider(provider);
+        if (!provider.getSession(sessionId)) await provider.loadSession(sessionId, folder, { rules: sessionRules(folder, null, sessionId) });
+        provider.followUp(sessionId, text).catch(sessionError(sessionId, provider));
+      },
+      file(queue, sessionId) {
+        const home = sidebarHome(queue.cwd);
+        changeSidebar((state) => moveToFolder(addFolder(state, home, queue.parent.title || `Ticket ${queue.parent.id}`, queue.folderId), [sessionId], queue.folderId));
+        publish(catalogSnapshot());
+      },
+      publish: (view) => publish({ queues: view }),
+    },
+  });
+  queues = queueRunner;
+  store.snapshot = { ...store.snapshot, queues: queueRunner.view() };
   const routes: Route[] = [
     ...sessionRoutes(host),
     ...reviewRoutes(host),
@@ -1057,6 +1120,7 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     ...browserRoutes(host),
     ...remoteRoutes(host),
     ...routineRoutes(host),
+    ...queueRoutes(queueRunner),
     ...appSettingRoutes(host),
   ];
 
@@ -1110,7 +1174,28 @@ export function createApp({ providers, desk, voice, quietVolume = createQuietVol
     openTerminalStream: guardedTerminalStream,
     chatFolders,
     routines,
-    boardCall: boardCall(board),
+    queues: queueRunner,
+    boardCall: boardRequest,
+    ticketStarts: {
+      from(sessionId) {
+        const provider = providers.forSession(sessionId);
+        const session = providers.getSession(sessionId);
+        return {
+          cwd: checkoutOf(session?.cwd || ""),
+          provider: provider.id,
+          model: session?.modelId || "",
+          effort: session?.reasoningEffort || "",
+          mode: providers.defaultMode(provider),
+        };
+      },
+      async worktree(folder, name, provider) {
+        try {
+          return (await createWorktree(folder, "", provider, { name })).path;
+        } catch (error) {
+          throw new Error(gitError(error));
+        }
+      },
+    },
     routineTools: {
       edits: routineEdits,
       defaults: (sessionId) => ({
@@ -1137,15 +1222,16 @@ export function builderFolder(chatHome: string) {
   return (cwd: string) => canonicalCwd(cwd) !== canonicalCwd(chatHome);
 }
 
-// The host's MCP tool groups: the plan, task suggestions, the chat id, the board, the browser pane, the simulators,
-// pr_status, chat folders and routines.
-export function hostToolGroups({ sessionOf, setPlan, planTool, suggestions, browser, simulator, builds, devices, folders, routines, board }: { sessionOf: (id: string) => SessionState | null | undefined; setPlan: PlanHost["setPlan"]; planTool: () => boolean; suggestions: TaskSuggestions; browser: Browser; simulator: Simulator; builds: Builds; devices: Devices; folders?: ChatFolders; routines?: () => RoutineToolHost; board?: BoardCall }) {
+// The host's MCP tool groups: the plan, task suggestions, the archive offer, the chat id, the board, the browser pane, the simulators,
+// pr_status, chat folders, routines and queues.
+export function hostToolGroups({ sessionOf, setPlan, planTool, suggestions, archiveOffers, browser, simulator, builds, devices, folders, routines, queues, board, ticketStarts }: { sessionOf: (id: string) => SessionState | null | undefined; setPlan: PlanHost["setPlan"]; planTool: () => boolean; suggestions: TaskSuggestions; archiveOffers: ArchiveOffers; browser: Browser; simulator: Simulator; builds: Builds; devices: Devices; folders?: ChatFolders; routines?: () => RoutineToolHost; queues?: () => QueueRunner; board?: BoardCall; ticketStarts?: () => TicketStarts }) {
   const modeOf = (id: string) => sessionOf(id)?.modeId ?? null;
   return [
     { ...planTools({ sessionOf, setPlan }), enabled: planTool },
     suggestTools(suggestions),
+    offerArchiveTools(archiveOffers),
     chatIdTools(),
-    ...(board ? [boardTools(board, (id) => sessionOf(id)?.cwd)] : []),
+    ...(board && ticketStarts ? [boardTools(board, { cwdOf: (id) => sessionOf(id)?.cwd, modeOf, prompts: browser, starts: ticketStarts })] : []),
     browserTools(browser, { modeOf }),
     simulatorTools(simulator, builds, browser, {
       modeOf,
@@ -1156,6 +1242,7 @@ export function hostToolGroups({ sessionOf, setPlan, planTool, suggestions, brow
     pullRequestTools((id) => sessionOf(id)?.cwd ?? null),
     ...(folders ? [folderTools(folders)] : []),
     ...(routines ? [routineTools(routines, browser, { modeOf })] : []),
+    ...(queues ? [queueTools(queues)] : []),
   ];
 }
 

@@ -128,8 +128,11 @@ test("a Claude chat continues on Grok under its own id, with Claude's stretch fr
     assert.equal(preview.to, "Grok Model");
     assert.ok(preview.tokens > 0 && preview.tokens < preview.cap);
 
-    await switchChat(world.deps, { chatId, provider: "grok" });
+    const asked: string[][] = [];
+    await switchChat({ ...world.deps, rules: (cwd, id) => void asked.push([cwd, id]) }, { chatId, provider: "grok" });
 
+    // The chat's own id goes with the rules, so a queue run's chat keeps its lines.
+    assert.deepEqual(asked, [["/w", chatId]]);
     assert.deepEqual(world.claude.log.slice(-1), [`forget ${chatId}`]);
     // Grok has no Ask first, so the chat lands in Grok's default mode.
     assert.deepEqual(world.grok.log, ["create grok-1 full"]);

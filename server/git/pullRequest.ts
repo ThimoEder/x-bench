@@ -1,4 +1,4 @@
-// The pull request of a folder's current branch, read with the GitHub CLI.
+// The pull request of a folder's current branch, read with the GitHub CLI, or the merge request with the GitLab CLI.
 
 import { execFile } from "node:child_process";
 import { isRecord } from "../../bridge/lenient.ts";
@@ -18,6 +18,8 @@ export interface PullRequest {
   // owner/name of the repository the pull request targets, which a fork's origin is not.
   repo: string;
   status: PullStatus;
+  // Set on a draft, whose status may read as its checks or a conflict.
+  draft?: true;
   review: string;
   failing: string[];
   pending: string[];
@@ -27,25 +29,49 @@ const FIELDS = "number,url,title,state,isDraft,mergeable,mergeStateStatus,review
 // A cancelled run, or one waiting for approval, is not broken code, so it does not count.
 const FAILED = new Set(["FAILURE", "ERROR", "TIMED_OUT", "STARTUP_FAILURE"]);
 
-// null when gh is missing or the branch has no pull request. Any other failure, such as being offline or
-// signed out, rejects, so the caller can keep what it showed.
+// null when the CLI is missing or the branch has no pull request. Any other gh failure, such as being offline
+// or signed out, rejects, so the caller can keep what it showed.
 export async function readPullRequest(cwd: string, run: ExecFile = execFile): Promise<PullRequest | null> {
-  const found = await viewPullRequest(cwd, [], run);
+  let found;
+  try {
+    found = await viewPullRequest(cwd, [], run);
+  } catch (error) {
+    // A signed-out gh fails before it looks at the remotes.
+    const mr = /gh auth login/.test(String(error)) ? await viewMergeRequest(cwd, run) : null;
+    if (mr) return mr;
+    throw error;
+  }
+  if (found === "elsewhere") return viewMergeRequest(cwd, run);
   if (found !== undefined) return found;
   // gh looks up the local branch name, which misses a PR whose head is an upstream branch of another name.
   const upstream = await renamedUpstream(cwd, run);
   if (!upstream) return null;
   const pr = await viewPullRequest(cwd, [upstream.head], run);
-  return pr ? { ...pr, branch: upstream.branch } : null;
+  return pr && pr !== "elsewhere" ? { ...pr, branch: upstream.branch } : null;
 }
 
-// undefined when gh finds no pull request for the branch.
-function viewPullRequest(cwd: string, branch: string[], run: ExecFile): Promise<PullRequest | null | undefined> {
+// null on every failure: glab missing, signed out, offline, or no merge request for the branch.
+function viewMergeRequest(cwd: string, run: ExecFile): Promise<PullRequest | null> {
+  // A token in the environment would override glab's own login.
+  const { GITLAB_TOKEN: _a, GITLAB_ACCESS_TOKEN: _b, OAUTH_TOKEN: _c, ...env } = process.env;
+  return new Promise((resolve) => {
+    run("glab", ["mr", "view", "-F", "json"], { timeout: 20000, cwd, env }, (error, stdout) => {
+      try {
+        resolve(error ? null : presentMergeRequest(JSON.parse(String(stdout))));
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+// undefined when gh finds no pull request for the branch, "elsewhere" when gh is missing or no remote is on GitHub.
+function viewPullRequest(cwd: string, branch: string[], run: ExecFile): Promise<PullRequest | "elsewhere" | null | undefined> {
   return new Promise((resolve, reject) => {
     // gh has no -C and reads the branch from its working directory.
     run("gh", ["pr", "view", ...branch, "--json", FIELDS], { timeout: 20000, cwd }, (error, stdout, stderr) => {
       if (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") resolve(null);
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" || /known GitHub host/i.test(String(stderr))) resolve("elsewhere");
         else if (/no pull requests? found/i.test(String(stderr))) resolve(undefined);
         else reject(new Error(String(stderr || error.message).trim() || "gh failed"));
         return;
@@ -70,7 +96,7 @@ function renamedUpstream(cwd: string, run: ExecFile): Promise<{ branch: string; 
   });
 }
 
-// Names from GitHub go into the agent's prompt, so each is one short line.
+// Names from the remote go into the agent's prompt, so each is one short line.
 function oneLine(value: unknown): string {
   // eslint-disable-next-line no-control-regex -- newlines and other control characters would break the prompt
   return String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 120);
@@ -107,9 +133,31 @@ export function presentPullRequest(data: unknown): PullRequest | null {
       : data.mergeStateStatus === "BEHIND" ? "behind"
       : data.mergeable === "UNKNOWN" || data.mergeStateStatus === "UNKNOWN" ? "checking"
       : "ready",
+    ...(data.isDraft === true && data.state === "OPEN" ? { draft: true as const } : {}),
     review: String(data.reviewDecision || ""),
     failing: [...failing],
     pending: [...pending],
+  };
+}
+
+export function presentMergeRequest(data: unknown): PullRequest | null {
+  if (!isRecord(data) || typeof data.iid !== "number" || typeof data.web_url !== "string") return null;
+  return {
+    number: data.iid,
+    url: data.web_url,
+    title: oneLine(data.title),
+    head: oneLine(data.source_branch),
+    base: oneLine(data.target_branch),
+    repo: data.web_url.match(/^https?:\/\/[^/]+\/(.+?)\/-\/merge_requests\//)?.[1] ?? "",
+    status:
+      data.state === "merged" ? "merged"
+      : data.state === "closed" ? "closed"
+      : data.draft ? "draft"
+      : data.detailed_merge_status === "mergeable" ? "ready"
+      : "blocked",
+    review: "",
+    failing: [],
+    pending: [],
   };
 }
 

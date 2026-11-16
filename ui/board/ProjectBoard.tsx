@@ -4,6 +4,7 @@ import type { SidebarSession, TicketLinks } from "../../server/snapshot.ts";
 import type { ComposerCatalog } from "../../server/snapshot.ts";
 import { BoardSite, type BoardSitePage, type BoardSiteRequest } from "./BoardSite.tsx";
 import { ThreadSheet } from "./ThreadSheet.tsx";
+import { knownTickets, QueueSheet } from "../queue/QueueSheet.tsx";
 import type { DraftPicks } from "../chat/composer/draftConfig.ts";
 import type { WorktreePlan } from "../folder/draftWorktree.ts";
 import { LabelPicker } from "./LabelPicker.tsx";
@@ -182,6 +183,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
   const [asking, setAsking] = useState<Asking | null>(null);
   const [deleting, setDeleting] = useState<{ task: BoardTask; error: string; busy: boolean } | null>(null);
   const [threadFor, setThreadFor] = useState<BoardTask | null>(null);
+  const [queueFor, setQueueFor] = useState<BoardTask | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filterPanel = useRef<HTMLDivElement | null>(null);
   const [statusFilter, setStatusFilter] = useState<unknown[]>([]);
@@ -988,6 +990,7 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
               onReload={() => setReload((value) => value + 1)}
               onOpenSession={onOpenSession}
               onThread={() => setThreadFor(detailTask ?? pane.task)}
+              onQueue={Array.isArray(pane.task.subtasks) && pane.task.subtasks.length ? () => setQueueFor(detailTask ?? pane.task) : undefined}
               onMove={(status, needs) => {
                 const task = detailTask ?? pane.task;
                 if (needs.length) setAsking({ task, status, fields: needs, values: {} });
@@ -1100,6 +1103,20 @@ export function ProjectBoard({ cwd, taskId, chats, call, onOpenSession, catalog,
             setThreadFor(null);
           }}
           onCancel={() => setThreadFor(null)}
+        />
+      ) : null}
+      {queueFor ? (
+        <QueueSheet
+          cwd={textOf(board.folder) || cwd}
+          taskId={queueFor.id}
+          title={ticketName(board, queueFor)}
+          call={call}
+          catalog={catalog}
+          picks={picks}
+          onPick={onPick}
+          onStarted={() => setQueueFor(null)}
+          onCancel={() => setQueueFor(null)}
+          known={knownTickets(pane?.task?.subtasks)}
         />
       ) : null}
       {sitePage && onCloseSite ? <BoardSite page={sitePage} onBack={onCloseSite} /> : null}

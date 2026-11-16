@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { fields, isRecord, maybe } from "../../../bridge/lenient.ts";
 import {
+  allRelations,
   fileBytes,
   FILE_TIMEOUT_MS,
   neighbors,
@@ -107,9 +108,9 @@ export const sakCapabilities: BoardCapabilities = {
   priority: false,
   subtasks: true,
   checklists: false,
-  relations: true,
+  relations: allRelations,
   commentEdits: false,
-  embedsByName: false,
+  wikiMarkup: false,
   signedInPages: true,
   archives: false,
   assigneeLabel: "Assignee",
@@ -414,12 +415,12 @@ async function relatedTasks(request: SakRequest, task: unknown): Promise<{ subta
     const status = read.attributes.status ?? null;
     const entry = { id: other, title: clean(read.title, 200), status, done: status === "done" };
     if (relation.kind === "subtask") {
-      subtasks.push(entry);
+      subtasks.push({ ...entry, relation: "subtask" });
       continue;
     }
     // "parent" is how SAK spells this task's own parent.
     const kind = relation.kind === "parent" ? "subtask of" : clean(relation.kind, 40).replace(/_/g, " ");
-    related.push({ ...entry, kind });
+    related.push({ ...entry, kind, relation: allRelations.find((item) => item === relation.kind) ?? null });
   }
   return { subtasks, related };
 }

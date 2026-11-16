@@ -34,11 +34,11 @@ export interface BoardCapabilities {
   subtasks: boolean;
   // A ticket has checklists whose items can be ticked and added here.
   checklists: boolean;
-  // Tickets can be related here: a parent, a blocker, an order, a duplicate (PUT /api/board/tasks/:id/relations).
-  relations: boolean;
+  // The relation kinds a ticket takes here, as PUT /api/board/tasks/:id/relations spells them. Empty when tickets don't relate.
+  relations: readonly RelationSpelling[];
   commentEdits: boolean;
-  // A ticket's text shows a file by its name, as !shot.png! or !shot.png|width=300!.
-  embedsByName: boolean;
+  // A ticket's text is wiki markup: h2. for a heading, {{mono}}, and !shot.png! or !shot.png|width=300! for a file.
+  wikiMarkup: boolean;
   // The board's own site opens in the desktop app, already signed in.
   signedInPages: boolean;
   // Deleting a ticket archives it, and the source keeps it.
@@ -203,11 +203,12 @@ export const relationKinds = ["blocks", "parent", "follows", "relates", "duplica
 export type RelationKind = (typeof relationKinds)[number];
 
 // The spellings that name a stored kind from the other ticket's end.
-export const flippedKinds = new Map<string, RelationKind>([
-  ["blocked_by", "blocks"],
-  ["subtask", "parent"],
-  ["precedes", "follows"],
-]);
+const flipped = { blocked_by: "blocks", subtask: "parent", precedes: "follows", duplicated_by: "duplicates" } as const;
+export const flippedKinds = new Map<string, RelationKind>(Object.entries(flipped));
+
+export type RelationSpelling = RelationKind | keyof typeof flipped;
+
+export const allRelations: readonly RelationSpelling[] = ["parent", "subtask", "blocks", "blocked_by", "follows", "precedes", "relates", "duplicates", "duplicated_by"];
 
 // A ticket's files, each with at least id, name, content_type, size, url and created_at.
 export interface TicketFiles {

@@ -1,11 +1,10 @@
 // suggestions.json: { "sessions": { "<session id>": [{ "id", "title", "summary", "prompt", "createdAt" }] } }
 
 import { randomBytes } from "node:crypto";
-import path from "node:path";
 import { z } from "zod";
 import { isRecord, listOf } from "../../bridge/lenient.ts";
 import { stripHidden } from "./boardText.ts";
-import { fileStamp, loadDurable, saveDurable } from "../jsonFile.ts";
+import { watchedJson } from "../jsonFile.ts";
 import { MCP_SERVER, toolText, type McpGroup } from "../mcp/mcp.ts";
 
 export interface TaskSuggestion {
@@ -52,21 +51,12 @@ export interface TaskSuggestions {
 }
 
 export function createTaskSuggestions(file: string): TaskSuggestions {
-  let cached: { stamp: string; value: Sessions } | null = null;
-  let seenStamp = fileStamp(file);
+  const json = watchedJson(file, parse, {}, "keep suggestions");
+  const read = json.read;
   const listeners = new Set<() => void>();
 
-  function read(): Sessions {
-    const stamp = fileStamp(file);
-    if (cached?.stamp !== stamp) cached = { stamp, value: loadDurable(file, parse, {}) };
-    return cached.value;
-  }
-
   function write(sessions: Sessions) {
-    const saved = saveDurable(file, `${JSON.stringify({ sessions }, null, 2)}\n`, parse);
-    cached = null;
-    if (!saved) throw new Error(`${path.basename(file)} does not read. Fix or remove it to keep suggestions.`);
-    seenStamp = fileStamp(file);
+    json.write({ sessions });
     for (const listener of listeners) listener();
   }
 
@@ -105,12 +95,7 @@ export function createTaskSuggestions(file: string): TaskSuggestions {
       delete sessions[sessionId];
       write(sessions);
     },
-    changedOnDisk() {
-      const stamp = fileStamp(file);
-      if (stamp === seenStamp) return false;
-      seenStamp = stamp;
-      return true;
-    },
+    changedOnDisk: json.changedOnDisk,
     onChange(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

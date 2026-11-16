@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { durableNotices } from "./jsonFile.ts";
+import { durableNotices, watchedJson } from "./jsonFile.ts";
 import { emptySidebar, readSidebar, writeSidebar } from "./sidebar/sidebar.ts";
 import { emptyTickets, readTickets, writeTickets } from "./board/tickets.ts";
 
@@ -76,6 +76,39 @@ test("a repaired sidebar is kept until a later read succeeds", () => {
     writeSidebar({ ...readSidebar(file), hidden: ["stale"] }, file);
     assert.deepEqual(readSidebar(file).hidden, ["stale"]);
     assert.equal(durableNotices().some((notice) => notice.id === `unreadable:${file}`), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a watched file notices a change another host wrote once, and its own write is not news", () => {
+  const dir = scratch();
+  try {
+    const file = path.join(dir, "list.json");
+    const parse = (value: unknown) => (Array.isArray(value) ? value : null);
+    const json = watchedJson<unknown[]>(file, parse, [], "keep the list");
+    assert.equal(json.changedOnDisk(), false);
+    json.write(["one"]);
+    assert.equal(json.changedOnDisk(), false);
+    assert.equal(readFileSync(file, "utf8"), '[\n  "one"\n]\n');
+    watchedJson<unknown[]>(file, parse, [], "keep the list").write(["one", "from the other host"]);
+    assert.equal(json.changedOnDisk(), true);
+    assert.equal(json.changedOnDisk(), false);
+    assert.deepEqual(json.read(), ["one", "from the other host"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a watched file that does not read is left alone, and a write says what to fix", () => {
+  const dir = scratch();
+  try {
+    const file = path.join(dir, "list.json");
+    writeFileSync(file, "{ not json");
+    const json = watchedJson<unknown[]>(file, (value) => (Array.isArray(value) ? value : null), [], "keep the list");
+    assert.deepEqual(json.read(), []);
+    assert.throws(() => json.write(["one"]), /list\.json does not read\. Fix or remove it to keep the list\./);
+    assert.equal(readFileSync(file, "utf8"), "{ not json");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

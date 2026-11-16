@@ -1,5 +1,5 @@
 import { memo, useEffect, useEffectEvent, useRef, useState } from "react";
-import type { ProviderUsage, ProviderView, RemoteState, RoutinesView, SidebarProject, SidebarSession, Snapshot, Surface } from "../../server/snapshot.ts";
+import type { QueueView, ProviderUsage, ProviderView, RemoteState, RoutinesView, SidebarProject, SidebarSession, Snapshot, Surface } from "../../server/snapshot.ts";
 import { useWorktreeDiscard } from "../git/WorktreeDiscard.tsx";
 import type { ApiCall } from "../launchToken.ts";
 import { UpdateCard, updateBridge, useWaitingUpdate } from "../updater/UpdateCard.tsx";
@@ -32,6 +32,7 @@ export interface SidebarProps {
     // The page's first snapshot has no providers yet.
     providers?: ProviderView[];
     routines?: RoutinesView;
+    queues?: QueueView[];
     needsYou?: readonly unknown[];
   };
   busy: boolean;
@@ -130,6 +131,7 @@ export const Sidebar = memo(function Sidebar({ snapshot, busy, onNew, onOpen, on
     unread,
     openIds: new Set(shownIds ?? (snapshot.open ?? []).map((session) => session.id)),
     tickets: snapshot.tickets?.bySession,
+    queues: snapshot.queues,
     providers: snapshot.providers || NO_PROVIDERS,
     providerShown,
     pattern,

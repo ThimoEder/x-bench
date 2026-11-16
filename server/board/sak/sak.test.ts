@@ -957,6 +957,7 @@ test("a relation is created and removed in the direction SAK stores it, and SAK'
     assert.equal(at((await send("DELETE", "/api/board/tasks/205/relations/204/relates"))?.body, "error"), "These tickets have no such relation");
     state.refuseRelation = null;
 
+    const jiraKinds = "parent, subtask, blocks, blocked_by, relates, duplicates, duplicated_by";
     const asked: [string, string, PageBody, string][] = [
       ["PUT", "/api/board/tasks/205/relations", { otherTaskId: 204, kind: "child" }, "Choose a relation kind, such as parent, subtask or blocks"],
       ["PUT", "/api/board/tasks/205/relations", { otherTaskId: 204, kind: "constructor" }, "Choose a relation kind, such as parent, subtask or blocks"],
@@ -965,8 +966,8 @@ test("a relation is created and removed in the direction SAK stores it, and SAK'
       ["PUT", "/api/board/tasks/205/relations", { otherTaskId: "APP-1", kind: "parent" }, "Choose the other ticket"],
       ["DELETE", "/api/board/tasks/205/relations/204/child", {}, "Choose a relation kind, such as parent, subtask or blocks"],
       ["PUT", `/api/board/tasks/${"f".repeat(24)}/relations`, { otherTaskId: "e".repeat(24), kind: "parent" }, "This board has no ticket relations"],
-      ["PUT", "/api/board/tasks/APP-2/relations", { otherTaskId: "APP-1", kind: "parent" }, "This board has no ticket relations"],
-      ["DELETE", "/api/board/tasks/APP-2/relations/APP-1/subtask", {}, "This board has no ticket relations"],
+      ["PUT", "/api/board/tasks/APP-2/relations", { otherTaskId: "APP-1", kind: "follows" }, `Jira tickets don't relate as follows. They relate as ${jiraKinds}.`],
+      ["DELETE", "/api/board/tasks/APP-2/relations/APP-1/precedes", {}, `Jira tickets don't relate as precedes. They relate as ${jiraKinds}.`],
     ];
     for (const [method, route, body, message] of asked) {
       const sent = await send(method, route, body);

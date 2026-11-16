@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fields } from "../../../bridge/lenient.ts";
 import { BOARD_TEXT_RULE, clip } from "../boardText.ts";
 import type { BoardSettings } from "../boardSettings.ts";
-import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
+import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startChatRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
 
 export interface SakBinding {
   provider: "sak";
@@ -40,9 +40,10 @@ function sakRules(_binding: SakBinding, ticket: BoardTicket | null | undefined, 
     ...startRule(moves.start),
     ...reviewRule(moves.review),
     doneRule(moves.done),
-    `File a ticket as a sub-task of another with the ${BOARD_TOOLS.relate} tool, kind parent and the parent as otherId. Mark what blocks a ticket with kind blocked_by and the blocker as otherId. The other kinds are subtask, blocks, follows, precedes, relates and duplicates. Remove a relation with remove true.`,
+    `File a ticket as a sub-task of another with the ${BOARD_TOOLS.relate} tool, kind parent and the parent as otherId. Mark what blocks a ticket with kind blocked_by and the blocker as otherId. The other kinds are subtask, blocks, follows, precedes, relates, duplicates and duplicated_by. Remove a relation with remove true.`,
     fileRule("SAK takes PNG, JPEG, GIF and WebP pictures and MP4, QuickTime and WebM clips. Show one in the description or a comment with ![<what it shows>](<url>), using the url the tool answers."),
     attachRule(),
+    startChatRule(),
     `${shareRule()} Do not link to the SAK dashboard.`,
     BOARD_TEXT_RULE,
   ], ticket);

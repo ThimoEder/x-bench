@@ -1160,6 +1160,41 @@ test("claude: a thought is timed from when Claude went quiet, not from its first
   }
 });
 
+test("claude: a chat whose plan card was answered loads again idle", async () => {
+  const { provider, cleanup } = claudeHarness();
+  try {
+    await provider.start();
+    const session = await provider.createSession({ cwd: os.tmpdir() });
+    const turn = provider.prompt(session.id, "PLANCARD");
+    const waiting = await waitFor(() => provider.getSession(session.id)?.pendingPermission, "the plan card");
+    assert.match(presentSession(provider.getSession(session.id)!).pendingPermission?.plan ?? "", /Rename the notes/);
+    provider.answerPermission(session.id, waiting.options[0]?.optionId ?? "");
+    await turn;
+    await provider.forgetSession(session.id);
+    const loaded = await provider.loadSession(session.id, os.tmpdir());
+    assert.equal(loaded?.status, "idle");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("claude: a thought read back as its chat loads has no time", async () => {
+  const { provider, cleanup } = claudeHarness();
+  try {
+    await provider.start();
+    const session = await provider.createSession({ cwd: os.tmpdir() });
+    await provider.prompt(session.id, "THINK");
+    await provider.forgetSession(session.id);
+    const loaded = await provider.loadSession(session.id, os.tmpdir());
+    assert.ok(loaded);
+    const thought = presentSession(loaded).transcript.find((item) => item.type === "thought");
+    assert.equal(thought?.type === "thought" ? thought.text : null, "Mulling it over.");
+    assert.equal(thought && "durationMs" in thought ? thought.durationMs : undefined, null);
+  } finally {
+    await cleanup();
+  }
+});
+
 test("claude: a restart after the adapter dies keeps the account this start checked, whatever the settings say now", async () => {
   const account = mkdtempSync(path.join(os.tmpdir(), "x-bench-claude-account-"));
   let settings: { configDir?: string; problem?: string } = { configDir: account };

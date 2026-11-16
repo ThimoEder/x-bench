@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { toJpeg } from "../../../bridge/jpeg.ts";
 import { ANDROID_KEYCODES, line, parseAdbDevices, pngSize, type Button, type Point, type Size } from "../deviceMath.ts";
-import { defaultAdb } from "../devices.ts";
+import { defaultAdb, readAvdName } from "../devices.ts";
 import { messageOf } from "../../http.ts";
 import { runProcess, type RunCommand } from "../../runProcess.ts";
 import { parseUiautomator } from "../screenTree.ts";
@@ -393,9 +393,7 @@ function createListing(run: RunCommand, adb: string, emulator: string, shell: Sh
   // adb hands an emulator's serial to the next emulator once it stops, so the name is asked every time.
   async function avdOf(serial: string): Promise<string> {
     try {
-      const { stdout } = await run(adb, ["-s", serial, "emu", "avd", "name"], { timeoutMs: 5000 });
-      const name = stdout.toString("utf8").split("\n")[0]?.trim() ?? "";
-      return name === "OK" ? "" : name;
+      return await readAvdName(run, adb, serial);
     } catch {
       return "";
     }

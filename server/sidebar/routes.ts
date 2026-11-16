@@ -143,7 +143,7 @@ export function sidebarRoutes(host: Host): Route[] {
       path: "/api/archive",
       body: SessionBody.extend({ worktree: z.boolean().optional(), discard: z.boolean().optional() }),
       async handle({ res, body }) {
-        // Archiving hides the row and keeps the ticket link and the history, and answers a done ticket's offer to archive. It ends the session's turn, background tasks and shells.
+        // Archiving hides the row and keeps the ticket link and the history, and answers the offer to archive. It ends the session's turn, background tasks and shells.
         const { sessionId } = body;
         const listed = [...store.snapshot.projects.flatMap((project) => project.sessions), ...store.snapshot.chats].find((session) => session.id === sessionId);
         const worktreeRoot = canonicalCwd(host.paths.worktrees);
@@ -160,7 +160,17 @@ export function sidebarRoutes(host: Host): Route[] {
         const tickets = readTickets(host.paths.tickets);
         const answered = answerCleanup(tickets, sessionId);
         if (JSON.stringify(answered) !== JSON.stringify(tickets)) writeTickets(answered, host.paths.tickets);
+        host.archiveOffers.clear(sessionId);
         publish({ ...catalogSnapshot(), ...(kept ? { error: kept } : {}) });
+        sendJson(res, 200, { ok: true });
+      },
+    }),
+    route({
+      method: "POST",
+      path: "/api/archive/keep",
+      body: SessionBody,
+      handle({ res, body }) {
+        host.archiveOffers.clear(body.sessionId);
         sendJson(res, 200, { ok: true });
       },
     }),

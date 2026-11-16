@@ -36,9 +36,11 @@ interface ChatRowProps {
   session: SidebarSession;
   paging?: Paging;
   list: SidebarList;
+  // A word after the title, such as Main on a queue run's main chat.
+  tag?: string | undefined;
 }
 
-export function ChatRow({ project, session, paging, list }: ChatRowProps) {
+export function ChatRow({ project, session, paging, list, tag }: ChatRowProps) {
   const { attention, working, unread, rename, menu, pattern, providerShown } = list;
   const mark = attention.has(session.id) ? "attention" : working.has(session.id) ? "working" : unread.has(session.id) ? "unread" : "";
   const links = list.tickets?.[session.id] || [];
@@ -110,6 +112,7 @@ export function ChatRow({ project, session, paging, list }: ChatRowProps) {
           ) : (
             <RevealTitle className="session-title" text={session.title} />
           )}
+          {tag ? <span className="provider-tag is-label" data-testid="chat-tag">{tag}</span> : null}
           {session.provider && providerShown !== "none" ? (
             <span
               className={providerShown === "label" ? "provider-tag is-label" : "provider-tag"}

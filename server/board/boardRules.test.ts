@@ -16,7 +16,7 @@ test("a boarded folder gets the column rules and no ticket name", () => {
   assert.match(rules, /Create a ticket only when the user mentions a ticket in the thread/);
   assert.match(rules, /An investigation does not get one on its own/);
   assert.match(rules, /Create it with the board_create_ticket tool/);
-  assert.match(rules, /The description says in a few sentences what the work is, why it matters, and when it is done/);
+  assert.match(rules, /Write the description in the markup the board rules name, or else in Markdown: .* and a Done when heading/);
   assert.match(rules, /Change a ticket's title or description with the board_edit_ticket tool/);
   assert.match(rules, /Read the ticket's revision with board_read_ticket right before the edit/);
   assert.match(rules, /Read a ticket and its comments with the board_read_ticket tool\. Add a comment with board_comment\./);
@@ -36,6 +36,7 @@ test("a boarded folder gets the column rules and no ticket name", () => {
   assert.match(rules, /List a ticket's files with board_files, save one to open it with board_read_file, and delete one with board_delete_file/);
   assert.match(rules, /Link this chat when you create a ticket and start working on it, or when the user asks you to link the ticket/);
   assert.match(rules, /Link it with the board_link_chat tool/);
+  assert.match(rules, /When the user asks to start a ticket in a new chat, start it with the board_start_ticket tool/);
   assert.match(rules, /Whenever you mention a ticket in this chat, write it as a Markdown link with the ticket's id as its text: \[#<id>\]\(\?task=<id>\)\. The app opens it on this folder's board\. Write any other #<number> as plain text\./);
   assert.match(rules, /Do not link to the SAK dashboard/);
   assert.equal(rules.includes("When you share a ticket"), false);
@@ -68,6 +69,7 @@ test("a Trello board names its lists and keeps new tickets on Open when that lis
     links: [],
   }, "/tmp/app");
   assert.match(rules, /Trello board/);
+  assert.match(rules, /When the user asks to start a ticket in a new chat, start it with the board_start_ticket tool/);
   assert.match(rules, /already holds the Trello connection/);
   assert.match(rules, /Do not call Trello directly/);
   assert.match(rules, /The columns on this board are its Trello lists\. Read their names with the board_read tool\./);
@@ -115,8 +117,10 @@ test("the board settings pick the columns the rules name, and the rest are found
   const jira = { bindings: { "/tmp/app": { provider: "jira", boardId: 9, title: "XB", columns: ["Backlog", "Doing now", "Code Review", "Shipped"] } }, links: [] };
   const plain = rulesForBoard(jira, "/tmp/app");
   assert.equal(plain.includes("Starting work"), false);
+  assert.match(plain, /A description or comment on this board is Jira wiki markup\. Write h2\. for a heading/);
   assert.match(plain, /moves the ticket to Code Review\. .*status "Code Review"/);
   assert.match(plain, /asks which column the ticket should move to/);
+  assert.match(plain, /When the user asks to start a ticket in a new chat, start it with the board_start_ticket tool/);
   const picked = rulesForBoard(jira, "/tmp/app", null, {
     columns: {},
     order: [],

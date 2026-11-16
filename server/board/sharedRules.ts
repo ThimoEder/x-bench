@@ -18,6 +18,7 @@ export const BOARD_TOOLS = {
   readFile: "board_read_file",
   deleteFile: "board_delete_file",
   link: "board_link_chat",
+  start: "board_start_ticket",
 } as const;
 
 // The ticket a card thread opens with. Every field is coerced here, so any value reads.
@@ -63,7 +64,7 @@ export function doneRule(column: MoveColumn | null): string {
 }
 
 export function createRule(column: string): string {
-  return `Create a ticket only when the user mentions a ticket in the thread. An investigation does not get one on its own. Create it with the ${BOARD_TOOLS.create} tool. The description says in a few sentences what the work is, why it matters, and when it is done. The tool puts the ticket in ${column} and leaves this chat unlinked.`;
+  return `Create a ticket only when the user mentions a ticket in the thread. An investigation does not get one on its own. Create it with the ${BOARD_TOOLS.create} tool. Write the description in the markup the board rules name, or else in Markdown: one or two sentences on what the work is and why it matters, the details as a list where there are several, and a Done when heading that says when it is done. The tool puts the ticket in ${column} and leaves this chat unlinked.`;
 }
 
 export function editRule(): string {
@@ -80,6 +81,10 @@ export function fileRule(shown: string): string {
 
 export function attachRule(): string {
   return `Link this chat when you create a ticket and start working on it, or when the user asks you to link the ticket. Link it with the ${BOARD_TOOLS.link} tool.`;
+}
+
+export function startChatRule(): string {
+  return `When the user asks to start a ticket in a new chat, start it with the ${BOARD_TOOLS.start} tool, which links the new chat to the ticket.`;
 }
 
 export function shareRule(): string {

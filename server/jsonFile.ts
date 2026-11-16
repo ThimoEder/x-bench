@@ -78,6 +78,40 @@ export function fileStamp(file: string): string {
   }
 }
 
+export interface WatchedJson<T> {
+  read(): T;
+  // Throws when the file on disk does not read, and leaves it in place.
+  write(value: unknown): void;
+  // True when another host changed the file since the last call.
+  changedOnDisk(): boolean;
+}
+
+// A durable JSON file that every host on the home may write. read() parses it again only after it changed,
+// and purpose finishes the error a refused write throws: "Fix or remove it to <purpose>."
+export function watchedJson<T>(file: string, parse: (value: unknown) => T | null, empty: T, purpose: string): WatchedJson<T> {
+  let cached: { stamp: string; value: T } | null = null;
+  let seenStamp = fileStamp(file);
+  return {
+    read() {
+      const stamp = fileStamp(file);
+      if (cached?.stamp !== stamp) cached = { stamp, value: loadDurable(file, parse, empty) };
+      return cached.value;
+    },
+    write(value) {
+      const saved = saveDurable(file, `${JSON.stringify(value, null, 2)}\n`, parse);
+      cached = null;
+      if (!saved) throw new Error(`${path.basename(file)} does not read. Fix or remove it to ${purpose}.`);
+      seenStamp = fileStamp(file);
+    },
+    changedOnDisk() {
+      const stamp = fileStamp(file);
+      if (stamp === seenStamp) return false;
+      seenStamp = stamp;
+      return true;
+    },
+  };
+}
+
 export function durableNotices(): ServiceNotice[] {
   return [...blocked.values()];
 }

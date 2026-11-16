@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BoardCall } from "./boardData.ts";
 import { embedFiles, fileRefs, pendingFile, ticketFiles, ticketImageSrc, ticketVideoSrc, type TicketFile } from "./ticketEmbeds.ts";
+import { wikiToMarkdown } from "./wikiMarkup.ts";
 
 // How a ticket's text is drawn, with the pictures and clips it shows from the ticket's files.
 export interface TicketProse {
@@ -11,9 +12,8 @@ export interface TicketProse {
 }
 
 // The ticket's files are loaded only once its texts show a picture or clip, which only their list resolves.
-// byName is the board's embedsByName capability.
-export function useTicketProse(taskId: unknown, texts: string[], call: BoardCall, byName: boolean): TicketProse {
-  const refs = fileRefs(texts.join("\n"), byName).join("\n");
+export function useTicketProse(taskId: unknown, texts: string[], call: BoardCall, wiki: boolean): TicketProse {
+  const refs = fileRefs(texts.join("\n"), wiki).join("\n");
   const key = `${String(taskId)}\n${refs}`;
   // A list read for another ticket, or before the texts named these files, does not count yet.
   const [loaded, setLoaded] = useState<{ key: string; files: TicketFile[] } | null>(null);
@@ -30,9 +30,9 @@ export function useTicketProse(taskId: unknown, texts: string[], call: BoardCall
     };
   }, [taskId, refs, key, call]);
   return useMemo(() => ({
-    text: (value) => embedFiles(value, taskId, files, byName),
+    text: (value) => embedFiles(wiki ? wikiToMarkdown(value) : value, taskId, files, wiki),
     imageSrc: ticketImageSrc,
     imagePending: (filePath) => files === null && filePath === pendingFile(taskId),
     videoSrc: ticketVideoSrc,
-  }), [taskId, files, byName]);
+  }), [taskId, files, wiki]);
 }

@@ -665,7 +665,7 @@ function TaskChip({ notice }: { notice: TaskNotice }) {
     <p className={`activity-row task-completed is-${tone}`} data-testid="task-completed" data-tone={tone}>
       <Diamond filled />
       <span className="task-completed-label">{notice.title}</span>
-      {notice.detail ? <span className="task-completed-detail">{notice.detail}</span> : null}
+      {notice.detail ? <span className="task-completed-detail" title={notice.detail}>{notice.detail}</span> : null}
     </p>
   );
 }

@@ -207,6 +207,8 @@ export type ReducerEvent = EventStamp &
         hidden?: boolean;
         attachments?: DisplayAttachment[];
         messageId?: string;
+        // A thought session/load replayed. How long the model thought is unknown, so it gets no start time.
+        untimed?: boolean;
       }
     | { type: "user-images"; promptIndex: number; images: Image[] }
     | ToolEvent
@@ -349,7 +351,7 @@ function reduceEvent(session: SessionState, event: ReducerEvent, classify: ToolC
     case "chunk": {
       if (event.role === "user") return applyUserChunk(session, event);
       const base = session.retry ? { ...session, retry: null } : session;
-      return appendText(base, event.role, event.text, undefined, event.at, event.hidden, event.messageId);
+      return appendText(base, event.role, event.text, undefined, event.untimed ? null : event.at, event.hidden, event.messageId);
     }
     case "user-images":
       return attachUserImages(session, event);
@@ -632,7 +634,8 @@ function appendText(
   type: TextItem["type"],
   text: string,
   attachments?: DisplayAttachment[],
-  at?: number,
+  // null leaves the entry without a start time.
+  at?: number | null,
   hidden?: boolean,
   messageId?: string,
 ) {
@@ -646,7 +649,7 @@ function appendText(
   const entry = { id: `${type}-${seq}`, type, text, streaming: type !== "user" } as TextItem;
   if (hidden) entry.hidden = true;
   if (messageId) entry.messageId = messageId;
-  if (type === "thought" || type === "assistant") entry.startedAt = at ?? Date.now();
+  if ((type === "thought" || type === "assistant") && at !== null) entry.startedAt = at ?? Date.now();
   const shown = displayAttachments(attachments);
   if (shown.length) entry.attachments = shown;
   transcript.push(entry);

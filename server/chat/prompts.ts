@@ -1,11 +1,11 @@
-// Questions the host's own tools ask the person, per session: the browser, simulator and routine tools ask
+// Questions the host's own tools ask the person, per session: the browser, simulator, routine and board tools ask
 // before acting unless the chat's mode goes ahead. The page shows a waiting question as the session's permission
 // card, and an "always" answer holds for one place (a site, a device) for the rest of the session.
 
 import { randomBytes } from "node:crypto";
 import type { PermissionOption } from "../../bridge/protocol.ts";
 
-export type PromptKind = "browser" | "simulator" | "routine";
+export type PromptKind = "browser" | "simulator" | "routine" | "board";
 
 export interface HostPrompt {
   id: string;

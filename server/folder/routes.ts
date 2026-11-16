@@ -7,7 +7,6 @@ import { folderPathOf, resolveInFolder } from "./files.ts";
 import { checkoutFolder, readFolderRefs, sharesCheckout, turnFolders } from "../git/folderGit.ts";
 import { gitError, refName } from "../git/git.ts";
 import { canonicalCwd, isDirectory } from "../chat/sessions.ts";
-import { latestMain } from "../git/branch.ts";
 import { messageOf, sendJson } from "../http.ts";
 import type { Host } from "../app.ts";
 import { route, type Route } from "../router.ts";
@@ -178,8 +177,7 @@ export function folderRoutes(host: Host): Route[] {
         }
         const folder = canonicalCwd(next);
         try {
-          const gitRef = asked || (await latestMain(folder).catch(() => "HEAD"));
-          const created = await createWorktree(folder, gitRef, worktreeProvider(body.provider), { name: body.name });
+          const created = await createWorktree(folder, asked, worktreeProvider(body.provider), { name: body.name });
           if (!isDirectory(created.path)) {
             sendJson(res, 500, { error: "Worktree was not created" });
             return;

@@ -8,7 +8,7 @@ import type { Providers } from "../providers/providers.ts";
 export type ExecFile = (
   file: string,
   args: string[],
-  options: { timeout: number; cwd?: string; maxBuffer?: number },
+  options: { timeout: number; cwd?: string; maxBuffer?: number; env?: NodeJS.ProcessEnv },
   callback: (error: Error | null, stdout: string, stderr: string) => void,
 ) => unknown;
 

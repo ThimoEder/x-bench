@@ -13,7 +13,7 @@ export interface SwitchDeps {
   providers: Providers;
   ensureProvider(provider: Provider): Promise<void>;
   // The board rules of a builder chat's folder. Undefined for the Chat tab.
-  rules(cwd: string): string | undefined;
+  rules(cwd: string, chatId: string): string | undefined;
   windows(): ContextWindows;
   // Why a provider cannot run a turn now (off, failed, or its plan used up), or null when it can.
   blocked(provider: Provider): string | null;
@@ -241,7 +241,7 @@ export async function switchChat(deps: SwitchDeps, request: SwitchRequest, contr
   const { live, current, frozen, resume } = planned;
   const target = providers.harness(planned.target.id)!;
   const cwd = current.cwd;
-  const rules = deps.rules(cwd);
+  const rules = deps.rules(cwd, request.chatId);
   const mode: Mode = target.modes.some((choice) => choice.id === current.modeId) ? (current.modeId as Mode) : providers.defaultMode(target);
   const oldHarness = frozen.at(-1)!.harnessId;
   await deps.ensureProvider(planned.target);

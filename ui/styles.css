@@ -398,7 +398,7 @@ input, textarea, select {
   min-height: 0;
   display: flex;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
   padding: var(--pane-gap);
 }
 
@@ -2559,7 +2559,14 @@ button.md-file {
   max-width: 100%;
   min-width: 0;
   overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
 }
+
+.md-table-wrap tr > :first-child { border-left: 0; }
+.md-table-wrap tr > :last-child { border-right: 0; }
+.md-table-wrap thead th { border-top: 0; }
+.md-table-wrap table > :last-child > tr:last-child > * { border-bottom: 0; }
 
 .md-table-wrap table {
   width: 100%;
@@ -4786,7 +4793,7 @@ button.voice .voice-dot {
   inset: 0;
   z-index: 2;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--sidepanel-radius);
   padding: 0;
   cursor: pointer;
   background: rgba(0, 0, 0, var(--reach-dim));
@@ -8083,6 +8090,19 @@ div.ticket-row:hover { background: var(--hover); }
   font-size: 12.5px;
 }
 .ticket-link-line input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--line-strong), var(--focus-ring); }
+.ticket-link-line select {
+  flex: none;
+  width: auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--deep);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.ticket-link-line select:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--line-strong), var(--focus-ring); }
 .ticket-link-line input.is-bad { box-shadow: inset 0 0 0 1px var(--danger), 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent); }
 .ticket-link-alert {
   display: flex;
@@ -10601,6 +10621,33 @@ p.routine-hint { margin: -4px 0 12px; }
 }
 
 .project .folder-chats { padding-left: 0.9rem; }
+
+/* A queue run's ticket that has no chat yet. */
+.queue-wait div.session-link { cursor: default; }
+.queue-wait:hover div.session-link { background: none; }
+.queue-wait .session-title { flex: 1; }
+
+/* The run's order in its start sheet. */
+.queue-plan,
+.queue-outside ul { margin: 0 0 12px; padding: 0; list-style: none; }
+:is(.queue-plan, .queue-outside) li { display: flex; align-items: baseline; gap: 8px; min-height: 34px; padding: 5px 2px; border-top: 1px solid var(--line); font-size: 13px; }
+:is(.queue-plan, .queue-outside) li:first-child { border-top: 0; }
+.queue-plan li.is-done { color: var(--faint); }
+.queue-id { flex: none; color: var(--faint); font: 600 11.5px ui-monospace, "SF Mono", Menlo, monospace; }
+.queue-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-needs { flex: none; color: var(--faint); font-size: 12px; }
+.queue-outside p { margin: 0 0 4px; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.queue-hint { color: var(--faint); font-weight: 400; }
+.queue-slots input { max-width: 96px; }
+.queue-model { flex: none; margin: -4px 0; }
+/* Stands where a row's "after …" comes, while the order is read. */
+.queue-reading { flex: none; align-self: center; width: 52px; }
+.queue-prompt { flex: none; align-self: center; display: inline-flex; padding: 5px; border-radius: 8px; color: var(--faint); }
+.queue-prompt:hover { background: var(--hover); color: var(--text); }
+.queue-prompt.is-edited { color: var(--accent); }
+/* The main chat has no prompt to edit, and its menus line up with the tickets'. */
+.queue-plan li:first-child .queue-model { margin-right: 30px; }
+.ticket-run-queue { margin-left: 8px; }
 
 .folder.is-drop .folder-row,
 .project-head.is-drop { background: var(--active); }

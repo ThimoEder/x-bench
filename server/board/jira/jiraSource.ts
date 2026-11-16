@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fields, maybe } from "../../../bridge/lenient.ts";
 import { BOARD_TEXT_RULE, clip } from "../boardText.ts";
 import type { BoardSettings } from "../boardSettings.ts";
-import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
+import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, reviewRule, shareRule, startChatRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
 
 export interface JiraBinding {
   provider: "jira";
@@ -52,8 +52,11 @@ function jiraRules(binding: JiraBinding, ticket: BoardTicket | null | undefined,
     `Move a ticket with the ${BOARD_TOOLS.move} tool. status is a column name. A move follows the Jira workflow, which can refuse it. When it does, tell the user what the tool answered and leave the ticket where it is.`,
     ...startRule(moves.start),
     ...reviewRule(moves.review),
+    `File a ticket under a parent with the ${BOARD_TOOLS.relate} tool, kind parent and the parent as otherId; Jira decides which issue types can be parents. Mark what blocks a ticket with kind blocked_by and the blocker as otherId. The other kinds are subtask, blocks, relates, duplicates and duplicated_by. Jira has no follows or precedes. Remove a relation with remove true.`,
+    "A description or comment on this board is Jira wiki markup. Write h2. for a heading, *bold*, _italic_, {{inline code}}, {code}…{code} for a code block, * and # for list items, and [text|url] for a link.",
     fileRule("Show it in the description or a comment with !<file name>!."),
     attachRule(),
+    startChatRule(),
     BOARD_TEXT_RULE,
     doneRule(moves.done),
     shareRule(),

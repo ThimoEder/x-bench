@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { PresentedAttachment, PresentedQueueEntry } from "../../server/present.ts";
 import { fileBadge } from "./composer/attachments.ts";
 import type { SessionCall } from "./Transcript.tsx";
+import { userMessageView } from "./messages/reminders.ts";
 
 export interface QueueProps {
   queue: PresentedQueueEntry[];
@@ -9,6 +10,12 @@ export interface QueueProps {
 }
 
 // Follow-ups queued behind the running turn. Each can be sent now, edited or deleted.
+// A queue run's event reads as its event line does, without its tag.
+function shownText(text: string): string {
+  const view = userMessageView(text);
+  return view.harnessOnly && view.notice ? `${view.notice.title}: ${view.notice.detail}` : text;
+}
+
 export function Queue({ queue, act }: QueueProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
@@ -39,7 +46,7 @@ export function Queue({ queue, act }: QueueProps) {
                 onChange={(event) => setEditingText(event.target.value)}
               />
             ) : entry.text ? (
-              <p className="queue-text">{entry.text}</p>
+              <p className="queue-text">{shownText(entry.text)}</p>
             ) : null}
           </div>
           {editingId === entry.id ? (

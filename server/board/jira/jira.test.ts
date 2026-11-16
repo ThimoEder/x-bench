@@ -173,6 +173,7 @@ test("a Jira board's rules name only its In Progress and Done columns and say a 
   assert.match(rules, /board_attach_file tool and the file's path\. Show it in the description or a comment with !<file name>!\./);
   assert.match(rules, /ticket APP-3/);
   assert.match(rules, /tell the user what the tool answered/);
+  assert.match(rules, /board_relate tool, kind parent .* Jira has no follows or precedes\./);
   assert.match(threadBrief({ id: "APP-3", title: "Ship", status: "To Do" }), /Ticket APP-3, currently in To Do\./);
 });
 
@@ -233,8 +234,15 @@ test("the board routes bind a folder to a Jira board, load it with its capabilit
     if (parsed.pathname === "/rest/agile/1.0/board/12/configuration") {
       return json(200, { columnConfig: { columns: [{ name: "To Do", statuses: [{ id: "1" }] }, { name: "Done", statuses: [{ id: "2" }] }] } });
     }
-    if (parsed.pathname === "/rest/agile/1.0/board/12/issue") return json(200, { total: 1, issues: [issue] });
+    if (parsed.pathname === "/rest/agile/1.0/board/12/issue") {
+      const key = /^key = (\S+)$/.exec(parsed.searchParams.get("jql") || "")?.[1];
+      return json(200, key && key !== "APP-7" ? { total: 0, issues: [] } : { total: 1, issues: [issue] });
+    }
     if (parsed.pathname === "/rest/api/2/issue/APP-7") return json(200, issue);
+    // APP-9 is in Jira but off the board.
+    if (parsed.pathname === "/rest/api/2/issue/APP-9") return json(200, { ...issue, key: "APP-9" });
+    if (parsed.pathname === "/rest/api/2/issueLinkType") return json(200, { issueLinkTypes: [{ id: "1", name: "Blocks" }] });
+    if (parsed.pathname === "/rest/api/2/issueLink") return json(201, "");
     if (parsed.pathname === "/rest/api/2/issue/APP-7/comment") return json(200, { total: 1, comments: [{ id: "9", body: "Hi" }] });
     if (parsed.pathname === "/rest/api/2/issue/APP-7/transitions") return json(200, { transitions: [] });
     return json(404, { errorMessages: ["Not found"] });
@@ -287,9 +295,9 @@ test("the board routes bind a folder to a Jira board, load it with its capabilit
       priority: true,
       subtasks: true,
       checklists: false,
-      relations: false,
+      relations: ["parent", "subtask", "blocks", "blocked_by", "relates", "duplicates", "duplicated_by"],
       commentEdits: true,
-      embedsByName: true,
+      wikiMarkup: true,
       signedInPages: false,
       archives: false,
       assigneeLabel: "Assignee",
@@ -305,6 +313,14 @@ test("the board routes bind a folder to a Jira board, load it with its capabilit
     // A worktree without a binding of its own moves tickets on its checkout's board.
     assert.deepEqual(await send("POST", "/api/board/move", { cwd: tree, taskId: "APP-7", status: "done" }), move);
     assert.equal(at((await send("GET", `/api/board/board?cwd=${encodeURIComponent(tree)}`)).body, "folder"), folder);
+    const follows = await send("PUT", "/api/board/tasks/APP-7/relations", { cwd: folder, otherTaskId: "APP-8", kind: "precedes" });
+    assert.deepEqual(follows, {
+      status: 400,
+      body: { error: "Jira tickets don't relate as precedes. They relate as parent, subtask, blocks, blocked_by, relates, duplicates, duplicated_by.", code: "jira" },
+    });
+    const offBoard = await send("PUT", "/api/board/tasks/APP-9/relations", { otherTaskId: "APP-7", kind: "blocks" });
+    assert.deepEqual(offBoard, { status: 404, body: { error: "That ticket is on another board", code: null } });
+    assert.equal(calls.includes("POST /rest/api/2/issueLink"), false, "a ticket off the board gets no link");
     const removed = await send("DELETE", "/api/board/tasks/APP-7");
     assert.deepEqual(removed, { status: 200, body: { ok: true } });
     assert.equal(calls.filter((call) => call.startsWith("DELETE")).join(), "DELETE /rest/api/2/issue/APP-7");

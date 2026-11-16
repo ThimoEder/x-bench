@@ -49,27 +49,6 @@ test("suggestions are kept per session in the file, and removing the last one dr
   assert.equal(changes, 4);
 });
 
-test("a change another host wrote is noticed once", () => {
-  const file = scratchFile();
-  const store = createTaskSuggestions(file);
-  assert.equal(store.changedOnDisk(), false);
-  store.add("s1", input);
-  assert.equal(store.changedOnDisk(), false, "its own write is not news");
-  createTaskSuggestions(file).add("s1", { ...input, title: "From the other host" });
-  assert.equal(store.changedOnDisk(), true);
-  assert.equal(store.changedOnDisk(), false);
-  assert.equal(store.list("s1").length, 2);
-});
-
-test("a file that does not read is left alone, and adding says so", () => {
-  const file = scratchFile();
-  fs.writeFileSync(file, "{ not json");
-  const store = createTaskSuggestions(file);
-  assert.deepEqual(store.list("s1"), []);
-  assert.throws(() => store.add("s1", input), /does not read/);
-  assert.equal(fs.readFileSync(file, "utf8"), "{ not json");
-});
-
 test("suggest_task stores a cleaned suggestion, and tells the agent what was wrong otherwise", async () => {
   const store = createTaskSuggestions(scratchFile());
   const ok = await suggest(store, { title: "  Fix\nthe\u200b badge ", summary: " Why. ", prompt: "Do it.\u{E0041}" });

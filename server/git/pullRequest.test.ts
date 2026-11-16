@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { presentPullRequest, pullRequestTools, readPullRequest } from "./pullRequest.ts";
+import { presentMergeRequest, presentPullRequest, pullRequestTools, readPullRequest } from "./pullRequest.ts";
 
 const base = { number: 90, url: "https://github.com/o/r/pull/90", title: "Follow", state: "OPEN", isDraft: false, mergeable: "MERGEABLE", headRefName: "topic", baseRefName: "main", statusCheckRollup: [] };
 const passed = { __typename: "CheckRun", name: "Lint", status: "COMPLETED", conclusion: "SUCCESS" };
@@ -14,6 +14,8 @@ test("a pull request's status puts merge conflicts before checks, and checks bef
   assert.equal(status({ statusCheckRollup: [passed] }), "ready");
   assert.equal(status({ isDraft: true, statusCheckRollup: [passed] }), "draft");
   assert.equal(status({ isDraft: true, statusCheckRollup: [queued] }), "running");
+  assert.equal(presentPullRequest({ ...base, isDraft: true, statusCheckRollup: [queued] })?.draft, true);
+  assert.equal("draft" in (presentPullRequest(base) ?? {}), false);
   assert.equal(status({ statusCheckRollup: [pendingContext, failed] }), "failing");
   assert.equal(status({ mergeable: "CONFLICTING", statusCheckRollup: [failed] }), "conflict");
   assert.equal(status({ mergeable: "UNKNOWN", mergeStateStatus: "DIRTY" }), "conflict");
@@ -89,6 +91,61 @@ test("with no pull request for the local branch, gh looks up the upstream branch
   assert.equal(calls.length, 2);
   assert.equal(await repo(null, true), null);
   assert.equal(await repo("origin/other", false), null);
+});
+
+const mr = { iid: 7, web_url: "https://gitlab.com/group/sub/app/-/merge_requests/7", title: "Follow", state: "opened", draft: false, detailed_merge_status: "mergeable", source_branch: "topic", target_branch: "main" };
+
+test("a merge request reads as merged, closed, draft, ready or blocked", () => {
+  const status = (fields: Record<string, unknown>) => presentMergeRequest({ ...mr, ...fields })?.status;
+  assert.deepEqual(presentMergeRequest(mr), { number: 7, url: mr.web_url, title: "Follow", head: "topic", base: "main", repo: "group/sub/app", status: "ready", review: "", failing: [], pending: [] });
+  assert.equal(status({ detailed_merge_status: "not_approved" }), "blocked");
+  assert.equal(status({ draft: true }), "draft");
+  assert.equal(status({ state: "merged", detailed_merge_status: "not_open" }), "merged");
+  assert.equal(status({ state: "closed", draft: true }), "closed");
+  assert.equal(presentMergeRequest({ message: "404" }), null);
+});
+
+test("off GitHub, glab reads the merge request with its own login, and any glab failure reads as none", async () => {
+  const noHost = "none of the git remotes configured for this repository point to a known GitHub host.";
+  const repo = (glab: (callback: (error: Error | null, stdout: string, stderr: string) => void) => void, seen?: (options: { cwd?: string; env?: NodeJS.ProcessEnv }) => void) =>
+    readPullRequest("/repo", (file, args, options, callback) => {
+      if (file === "gh") return callback(new Error("exit 1"), "", noHost);
+      assert.deepEqual([file, ...args], ["glab", "mr", "view", "-F", "json"]);
+      seen?.(options);
+      glab(callback);
+    });
+  process.env.GITLAB_TOKEN = "t";
+  process.env.PULL_REQUEST_TEST = "kept";
+  try {
+    const found = await repo(
+      (callback) => callback(null, JSON.stringify(mr), ""),
+      (options) => {
+        assert.equal(options.cwd, "/repo");
+        assert.equal(options.env?.GITLAB_TOKEN, undefined);
+        assert.equal(options.env?.PULL_REQUEST_TEST, "kept");
+      },
+    );
+    assert.equal(found?.number, 7);
+  } finally {
+    delete process.env.GITLAB_TOKEN;
+    delete process.env.PULL_REQUEST_TEST;
+  }
+  assert.equal(await repo((callback) => callback(Object.assign(new Error("spawn glab ENOENT"), { code: "ENOENT" }), "", "")), null);
+  assert.equal(await repo((callback) => callback(new Error("exit 1"), "", "401 Unauthorized")), null);
+  assert.equal(await repo((callback) => callback(new Error("exit 1"), "", "no open merge request available for \"topic\"")), null);
+  assert.equal(await repo((callback) => callback(null, "not json", "")), null);
+});
+
+test("a signed-out gh hands over to glab, and its error stands when glab finds nothing", async () => {
+  const signedOut = "To get started with GitHub CLI, please run:  gh auth login";
+  const repo = (found: boolean) =>
+    readPullRequest("/repo", (file, _a, _o, callback) => {
+      if (file === "gh") return callback(new Error("exit 4"), "", signedOut);
+      if (found) callback(null, JSON.stringify(mr), "");
+      else callback(new Error("exit 1"), "", "not a GitLab repository");
+    });
+  assert.equal((await repo(true))?.number, 7);
+  await assert.rejects(repo(false), /gh auth login/);
 });
 
 test("pr_status reads the pull request of the chat's folder", async () => {

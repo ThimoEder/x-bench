@@ -591,7 +591,7 @@ function trelloKit(): Kit {
 
 // Jira: board 12 on project APP, whose filter leaves APP-3 out. Done can only be reached from Review,
 // and needs a resolution. Jira sends one item per page.
-function jiraKit(): Kit & { renameColumn(from: string, to: string): void } {
+function jiraKit(): Kit & { renameColumn(from: string, to: string): void; linkTypes: { id: string; name: string; inward: string; outward: string }[] } {
   const root = mkdtempSync(path.join(os.tmpdir(), "grok-contract-jira-"));
   const site = "https://example.atlassian.net";
   const statuses = [
@@ -629,6 +629,15 @@ function jiraKit(): Kit & { renameColumn(from: string, to: string): void } {
   const me = { accountId: "acc-me", displayName: "Thimo Eder" };
   const comments = new Map<string, { id: string; body: string; created: string; author: typeof me }[]>();
   const ranked: string[] = [];
+  const linkTypes = [
+    { id: "1", name: "Blocks", inward: "is blocked by", outward: "blocks" },
+    { id: "2", name: "Relates", inward: "relates to", outward: "relates to" },
+    { id: "3", name: "Duplicate", inward: "is duplicated by", outward: "duplicates" },
+    { id: "4", name: "Cloners", inward: "is cloned by", outward: "clones" },
+  ];
+  // from reads outward to to, as in "from blocks to".
+  const links: { id: string; type: (typeof linkTypes)[number]; from: string; to: string }[] = [];
+  let linkSerial = 50000;
   const statusOf = (id: string) => {
     const found = statuses.find((status) => status.id === id);
     assert.ok(found, `no status ${id}`);
@@ -661,13 +670,18 @@ function jiraKit(): Kit & { renameColumn(from: string, to: string): void } {
   };
   // An issue as Jira answers it, with its sub-tasks, parent and comment count filled in.
   const view = (issue: Issue) => {
-    const nested = (other: Issue) => ({ key: other.key, fields: { summary: other.fields.summary, status: other.fields.status } });
+    const nested = (other: Issue) => ({ key: other.key, fields: { summary: other.fields.summary, status: other.fields.status, issuetype: other.fields.issuetype } });
     const parent = issue.parent ? issues.get(issue.parent) : undefined;
     return {
       ...issue,
       fields: {
         ...issue.fields,
-        subtasks: [...issues.values()].filter((other) => other.parent === issue.key).map(nested),
+        subtasks: [...issues.values()].filter((other) => other.parent === issue.key && other.fields.issuetype.subtask).map(nested),
+        issuelinks: links.flatMap((link) => {
+          const other = issues.get(link.from === issue.key ? link.to : link.from);
+          if (!other || (link.from !== issue.key && link.to !== issue.key)) return [];
+          return [{ id: link.id, type: link.type, ...(link.from === issue.key ? { outwardIssue: nested(other) } : { inwardIssue: nested(other) }) }];
+        }),
         ...(parent ? { parent: nested(parent) } : {}),
         comment: { total: (comments.get(issue.key) || []).length },
       },
@@ -736,6 +750,29 @@ function jiraKit(): Kit & { renameColumn(from: string, to: string): void } {
       if (typeof fields.description === "string") issue.fields.description = fields.description;
       return { status: 201, body: { id: issue.id, key: issue.key } };
     }
+    if (method === "GET" && route === "/rest/api/2/search/jql") {
+      const parent = /^parent = (\S+) ORDER BY created ASC$/.exec(url.searchParams.get("jql") || "")?.[1];
+      assert.ok(parent, "the search names a parent");
+      const children = [...issues.values()].filter((other) => other.parent === parent);
+      return { status: 200, body: { issues: children.map((other) => ({ key: other.key, fields: { summary: other.fields.summary, status: other.fields.status, issuetype: other.fields.issuetype } })), isLast: true } };
+    }
+    if (method === "GET" && route === "/rest/api/2/issueLinkType") return { status: 200, body: { issueLinkTypes: linkTypes } };
+    if (method === "POST" && route === "/rest/api/2/issueLink") {
+      const type = linkTypes.find((item) => item.id === at(body, "type", "id"));
+      const from = String(at(body, "inwardIssue", "key"));
+      const to = String(at(body, "outwardIssue", "key"));
+      if (!type) return { status: 404, body: { errorMessages: ["No issue link type with that id."] } };
+      if (!issues.has(from) || !issues.has(to)) return { status: 404, body: { errorMessages: ["The issues do not exist."] } };
+      if (!links.some((link) => link.type === type && link.from === from && link.to === to)) links.push({ id: String((linkSerial += 1)), type, from, to });
+      return { status: 201, body: "" };
+    }
+    const unlinked = /^\/rest\/api\/2\/issueLink\/(\d+)$/.exec(route)?.[1];
+    if (method === "DELETE" && unlinked) {
+      const index = links.findIndex((link) => link.id === unlinked);
+      if (index < 0) return { status: 404, body: { errorMessages: ["No issue link with that id."] } };
+      links.splice(index, 1);
+      return { status: 204, body: "" };
+    }
     const match = /^\/rest\/api\/2\/issue\/([A-Z]+-\d+)(?:\/(.*))?$/.exec(route);
     const issue = match ? issues.get(match[1] ?? "") : undefined;
     if (!issue) return { status: 404, body: { errorMessages: ["Issue does not exist or you do not have permission to see it."] } };
@@ -752,6 +789,11 @@ function jiraKit(): Kit & { renameColumn(from: string, to: string): void } {
       const fields = isRecord(body.fields) ? body.fields : {};
       if (typeof fields.summary === "string") issue.fields.summary = fields.summary;
       if (fields.description !== undefined) issue.fields.description = typeof fields.description === "string" ? fields.description : null;
+      if (fields.parent !== undefined) {
+        const parent = fields.parent === null ? null : String(at(fields.parent, "key"));
+        if (parent !== null && !issues.has(parent)) return { status: 400, body: { errors: { parent: "The parent does not exist." } } };
+        issue.parent = parent;
+      }
       for (const change of isRecord(body.update) ? list(body.update.labels) : []) {
         const added = at(change, "add");
         const removed = record(change).remove;
@@ -858,6 +900,7 @@ function jiraKit(): Kit & { renameColumn(from: string, to: string): void } {
     refused: "Done",
     foreign: [41, "f".repeat(24)],
     missing: "APP-999",
+    linkTypes,
     close: () => rmSync(root, { recursive: true, force: true }),
     renameColumn(from, to) {
       const column = columns.find(([name]) => name === from);
@@ -1113,16 +1156,18 @@ for (const [name, make] of kits) {
     const kit = make();
     try {
       const { changeRelation } = kit.adapter;
-      if (!kit.adapter.capabilities.relations) {
+      if (!kit.adapter.capabilities.relations.length) {
         assert.equal(changeRelation, null);
         return;
       }
       assert.ok(changeRelation, "a source with relations can change them");
       const child = id(at(await kit.board.createTicket({ title: "Step", description: undefined }), "id"));
+      const subtasks = async () => list(at(await kit.adapter.readTicket(kit.seeded), "subtasks")).map((task) => at(task, "id"));
+      const before = await subtasks();
       await changeRelation(child, kit.seeded, "parent", true);
-      assert.deepEqual(list(at(await kit.adapter.readTicket(kit.seeded), "subtasks")).map((task) => at(task, "id")), [child]);
+      assert.deepEqual(await subtasks(), [...before, child]);
       await changeRelation(child, kit.seeded, "parent", false);
-      assert.deepEqual(at(await kit.adapter.readTicket(kit.seeded), "subtasks"), []);
+      assert.deepEqual(await subtasks(), before);
       assert.equal(await refused(changeRelation(child, kit.missing, "blocks", true)), 404);
     } finally {
       kit.close();
@@ -1171,6 +1216,71 @@ test("Trello adapter: a card's checklists show in the ticket, tick, take new ite
     const loaded = await kit.board.load({ search: "", activity: "" });
     const card = list(record(loaded.view).tasks).find((task) => at(task, "id") === kit.seeded);
     assert.deepEqual(at(card, "checkCount"), { done: 2, total: 3 });
+  } finally {
+    kit.close();
+  }
+});
+
+test("Jira adapter: blocks, relates and duplicates are the site's link types, read from either end and removed again", async () => {
+  const kit = jiraKit();
+  const { changeRelation } = kit.adapter;
+  assert.ok(changeRelation, "Jira writes relations");
+  const relations = async (key: TicketId) => list(at(await kit.adapter.readTicket(key), "related")).map((item) => [at(item, "id"), at(item, "kind"), at(item, "relation")]);
+  try {
+    const other = String(at(await kit.board.createTicket({ title: "Other", description: undefined }), "id"));
+    await changeRelation(kit.seeded, other, "blocks", true);
+    await changeRelation(other, kit.seeded, "duplicates", true);
+    await changeRelation(kit.seeded, other, "relates", true);
+    await changeRelation(other, kit.seeded, "relates", true);
+    assert.deepEqual(await relations(kit.seeded), [
+      [other, "blocks", "blocks"],
+      [other, "is duplicated by", "duplicated_by"],
+      [other, "relates to", "relates"],
+    ]);
+    assert.deepEqual(await relations(other), [
+      [kit.seeded, "is blocked by", "blocked_by"],
+      [kit.seeded, "duplicates", "duplicates"],
+      [kit.seeded, "relates to", "relates"],
+    ]);
+
+    await changeRelation(other, kit.seeded, "relates", false);
+    await changeRelation(other, kit.seeded, "duplicates", false);
+    await changeRelation(kit.seeded, other, "blocks", false);
+    assert.deepEqual(await relations(other), []);
+    assert.equal(await refused(changeRelation(kit.seeded, other, "blocks", false)), 404);
+
+    // APP-3 is on no bound board, and blocked_by arrives with it first.
+    await changeRelation("APP-3", kit.seeded, "blocks", true);
+    assert.deepEqual(await relations(kit.seeded), [["APP-3", "is blocked by", "blocked_by"]]);
+    await changeRelation("APP-3", kit.seeded, "blocks", false);
+    assert.deepEqual(await relations(kit.seeded), []);
+
+    const duplicate = kit.linkTypes.find((type) => type.name === "Duplicate");
+    assert.ok(duplicate);
+    duplicate.name = "Same as";
+    assert.deepEqual(boardFailure(await changeRelation(kit.seeded, other, "duplicates", true).catch((error: unknown) => error)).body, {
+      error: "This Jira site has no Duplicate link type",
+      code: "jira",
+    });
+  } finally {
+    kit.close();
+  }
+});
+
+test("Jira adapter: a parent is the issue's parent field, its children list on it, and a parent it doesn't have can't be removed", async () => {
+  const kit = jiraKit();
+  const { changeRelation } = kit.adapter;
+  assert.ok(changeRelation, "Jira writes relations");
+  try {
+    const child = String(at(await kit.board.createTicket({ title: "Child", description: undefined }), "id"));
+    await changeRelation(child, kit.seeded, "parent", true);
+    assert.deepEqual(list(at(await kit.adapter.readTicket(child), "related")).map((item) => [at(item, "id"), at(item, "relation")]), [[kit.seeded, "parent"]]);
+    // The Sub-Task stays on its parent, and a task under it reads as a child that can be taken off.
+    assert.deepEqual(list(at(await kit.adapter.readTicket(kit.seeded), "subtasks")).map((item) => [at(item, "id"), at(item, "relation")]), [["APP-2", null], [child, "subtask"]]);
+    assert.deepEqual(list(at(await kit.adapter.readTicket("APP-2"), "related")).map((item) => [at(item, "id"), at(item, "relation")]), [[kit.seeded, null]]);
+    assert.equal(await refused(changeRelation(child, "APP-2", "parent", false)), 404);
+    await changeRelation(child, kit.seeded, "parent", false);
+    assert.deepEqual(at(await kit.adapter.readTicket(child), "related"), []);
   } finally {
     kit.close();
   }
@@ -1267,10 +1377,10 @@ test("Jira adapter: a card carries its type, assignee, priority, due date, count
     assert.equal(at(card, "commentCount"), 1);
     assert.deepEqual(at(card, "subtaskCount"), { done: 0, total: 1 });
     assert.equal(at(card, "url"), "https://example.atlassian.net/browse/APP-1");
-    assert.deepEqual(at(await kit.adapter.readTicket("APP-1"), "subtasks"), [{ id: "APP-2", title: "Seeded sub-task", status: "To Do", done: false }]);
+    assert.deepEqual(at(await kit.adapter.readTicket("APP-1"), "subtasks"), [{ id: "APP-2", title: "Seeded sub-task", status: "To Do", done: false, relation: null }]);
     const sub = await kit.adapter.readTicket("APP-2");
     assert.equal(at(sub, "type"), "subtask");
-    assert.deepEqual(at(sub, "related"), [{ id: "APP-1", title: "Seeded", status: "To Do", done: false, kind: "sub-task of" }]);
+    assert.deepEqual(at(sub, "related"), [{ id: "APP-1", title: "Seeded", status: "To Do", done: false, kind: "sub-task of", relation: null }]);
   } finally {
     kit.close();
   }
@@ -1307,9 +1417,9 @@ test("SAK adapter: a parent counts its sub-tasks, and the detail lists them and 
     assert.equal(at(cards.find((card) => at(card, "id") === child), "parentId"), kit.seeded);
     assert.equal(at(parent, "url"), "http://127.0.0.1:4345/tasks/41");
     const detail = await kit.adapter.readTicket(kit.seeded);
-    assert.deepEqual(at(detail, "subtasks"), [{ id: child, title: "Step", status: "done", done: true }]);
+    assert.deepEqual(at(detail, "subtasks"), [{ id: child, title: "Step", status: "done", done: true, relation: "subtask" }]);
     assert.deepEqual(at(detail, "related"), []);
-    assert.deepEqual(at(await kit.adapter.readTicket(child), "related"), [{ id: 41, title: "Seeded", status: "open", done: false, kind: "subtask of" }]);
+    assert.deepEqual(at(await kit.adapter.readTicket(child), "related"), [{ id: 41, title: "Seeded", status: "open", done: false, kind: "subtask of", relation: "parent" }]);
   } finally {
     kit.close();
   }
@@ -1332,7 +1442,7 @@ test("SAK adapter: a relation is refused when it repeats, takes a second parent,
     const other = id(at(await kit.board.createTicket({ title: "Other epic", description: undefined }), "id"));
     await changeRelation(kit.seeded, parent, "parent", true);
     await changeRelation(kit.seeded, other, "blocks", true);
-    assert.deepEqual(at(await kit.adapter.readTicket(other), "related"), [{ id: kit.seeded, title: "Seeded", status: "open", done: false, kind: "blocked by" }]);
+    assert.deepEqual(at(await kit.adapter.readTicket(other), "related"), [{ id: kit.seeded, title: "Seeded", status: "open", done: false, kind: "blocked by", relation: "blocked_by" }]);
     assert.deepEqual(await failure(changeRelation(kit.seeded, other, "blocks", true)), {
       status: 409,
       body: { error: "These tickets already have that relation", code: "relation_exists" },

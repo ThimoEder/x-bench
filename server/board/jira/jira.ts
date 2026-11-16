@@ -21,6 +21,8 @@ import {
   type FileBytes,
   type MoveExtra,
   type MoveField,
+  type RelationKind,
+  type RelationSpelling,
   type TicketEdit,
 } from "../boardAdapter.ts";
 import { stripHidden } from "../boardText.ts";
@@ -109,8 +111,10 @@ export interface JiraTask {
   dueDone: boolean;
   commentCount: number | null;
   subtaskCount: { done: number; total: number } | null;
-  subtasks: JiraLinked[];
-  related: (JiraLinked & { kind: string })[];
+  // relation: subtask when the child can be taken off this ticket, null for a Jira Sub-Task.
+  subtasks: (JiraLinked & { relation: "subtask" | null })[];
+  // relation: the kind that removes the link from this ticket, null for a link type X Bench doesn't write.
+  related: (JiraLinked & { kind: string; relation: RelationSpelling | null })[];
   created: string | null;
   updated: string | null;
   url: string;
@@ -158,6 +162,7 @@ const Page = fields({
   values: maybe(z.array(z.unknown())),
   issues: maybe(z.array(z.unknown())),
   issueTypes: maybe(z.array(z.unknown())),
+  issueLinkTypes: maybe(z.array(z.unknown())),
   comments: maybe(z.array(z.unknown())),
   transitions: maybe(z.array(z.unknown())),
   total: z.unknown().optional(),
@@ -193,11 +198,12 @@ const User = fields({ accountId: z.unknown().optional(), displayName: z.unknown(
 
 const Nested = fields({
   key: z.unknown().optional(),
-  fields: fields({ summary: z.unknown().optional(), status: Status }),
+  fields: fields({ summary: z.unknown().optional(), status: Status, issuetype: fields({ subtask: z.unknown().optional() }) }),
 });
 
 const IssueLink = fields({
-  type: fields({ inward: z.unknown().optional(), outward: z.unknown().optional() }),
+  id: z.unknown().optional(),
+  type: fields({ name: z.unknown().optional(), inward: z.unknown().optional(), outward: z.unknown().optional() }),
   inwardIssue: z.unknown().optional(),
   outwardIssue: z.unknown().optional(),
 });
@@ -438,7 +444,11 @@ export function presentIssue(input: unknown, columns: JiraColumn[], site = ""): 
   const description = typeof issue.fields.description === "string" && issue.fields.description.trim()
     ? issue.fields.description
     : null;
-  const subtasks = (issue.fields.subtasks ?? []).flatMap((item) => linkedIssue(item, columns));
+  const subtasks = (issue.fields.subtasks ?? []).flatMap((item) => {
+    // Jira refuses to take a Sub-Task off its parent.
+    const relation = Nested.parse(item).fields.issuetype.subtask === true ? null : ("subtask" as const);
+    return linkedIssue(item, columns).map((child) => ({ ...child, relation }));
+  });
   const assignee = User.parse(issue.fields.assignee);
   const owner = person(assignee.accountId, assignee.displayName);
   const comments = Number(issue.fields.comment.total ?? issue.fields.comment.comments?.length);
@@ -467,12 +477,13 @@ export function presentIssue(input: unknown, columns: JiraColumn[], site = ""): 
     subtaskCount: subtasks.length ? { done: subtasks.filter((item) => item.done).length, total: subtasks.length } : null,
     subtasks,
     related: [
-      ...parentLink(issue.fields.parent, columns),
+      ...parentLink(issue.fields.parent, columns, issue.fields.issuetype.subtask === true),
       ...(issue.fields.issuelinks ?? []).flatMap((item) => {
         const link = IssueLink.parse(item);
         const outward = link.outwardIssue !== undefined;
         const kind = clip(outward ? link.type.outward : link.type.inward, 40);
-        return linkedIssue(outward ? link.outwardIssue : link.inwardIssue, columns).map((other) => ({ ...other, kind }));
+        const relation = linkRelation(link.type.name, outward);
+        return linkedIssue(outward ? link.outwardIssue : link.inwardIssue, columns).map((other) => ({ ...other, kind, relation }));
       }),
     ],
     created: typeof issue.fields.created === "string" ? issue.fields.created : null,
@@ -503,8 +514,68 @@ function linkedIssue(value: unknown, columns: JiraColumn[]): JiraLinked[] {
   }];
 }
 
-function parentLink(value: unknown, columns: JiraColumn[]): (JiraLinked & { kind: string })[] {
-  return value === undefined || value === null ? [] : linkedIssue(value, columns).map((parent) => ({ ...parent, kind: "sub-task of" }));
+// Jira refuses to take a Sub-Task off its parent, so that parent can't be removed here.
+function parentLink(value: unknown, columns: JiraColumn[], subtask: boolean): JiraTask["related"] {
+  if (value === undefined || value === null) return [];
+  return linkedIssue(value, columns).map((parent) => ({ ...parent, kind: "sub-task of", relation: subtask ? null : "parent" }));
+}
+
+// The link type each kind is, by the name Jira gives it. A site admin can rename or remove one.
+const LINK_TYPES: Partial<Record<RelationKind, string>> = { blocks: "Blocks", relates: "Relates", duplicates: "Duplicate" };
+
+function linkKind(name: unknown): RelationKind | null {
+  const lower = String(name ?? "").toLowerCase();
+  const found = Object.entries(LINK_TYPES).find(([, type]) => type.toLowerCase() === lower);
+  return found ? (found[0] as RelationKind) : null;
+}
+
+function linkRelation(name: unknown, outward: boolean): RelationSpelling | null {
+  const kind = linkKind(name);
+  if (kind === "blocks") return outward ? "blocks" : "blocked_by";
+  if (kind === "duplicates") return outward ? "duplicates" : "duplicated_by";
+  return kind;
+}
+
+// Creates or removes the relation key names to other: parent through the issue's parent field, the rest as issue links.
+export async function changeJiraRelation(
+  connection: JiraConnection,
+  key: unknown,
+  other: unknown,
+  kind: RelationKind,
+  attach: boolean,
+  options?: JiraCallOptions,
+): Promise<void> {
+  requireConnection(connection);
+  const otherKey = issueKey(other);
+  if (kind === "parent") {
+    if (!attach && Nested.parse((await readJiraIssue(connection, key, options)).fields.parent).key !== otherKey) {
+      throw jiraError(404, "These tickets have no such relation");
+    }
+    await jiraFetch(connection, "PUT", `/rest/api/2/issue/${issueKey(key)}`, { ...options, body: { fields: { parent: attach ? { key: otherKey } : null } } });
+    return;
+  }
+  const name = LINK_TYPES[kind];
+  if (!name) throw jiraError(400, `Jira has no ${kind} link`);
+  // A Relates link reads the same from both ends, so one either way counts.
+  const link = ((await readJiraIssue(connection, key, options)).fields.issuelinks ?? [])
+    .map((item) => IssueLink.parse(item))
+    .find((item) => linkKind(item.type.name) === kind && (
+      Nested.parse(item.outwardIssue).key === otherKey || (kind === "relates" && Nested.parse(item.inwardIssue).key === otherKey)
+    ));
+  if (attach) {
+    if (link) return;
+    const types = Page.parse(await jiraFetch(connection, "GET", "/rest/api/2/issueLinkType", options)).issueLinkTypes ?? [];
+    const type = types.map((item) => Named.parse(item)).find((item) => linkKind(item.name) === kind);
+    if (!type) throw jiraError(400, `This Jira site has no ${name} link type`);
+    // Jira files the issue a link reads outward from as its inwardIssue.
+    await jiraFetch(connection, "POST", "/rest/api/2/issueLink", {
+      ...options,
+      body: { type: { id: String(type.id) }, inwardIssue: { key: issueKey(key) }, outwardIssue: { key: otherKey } },
+    });
+    return;
+  }
+  if (!link) throw jiraError(404, "These tickets have no such relation");
+  await jiraFetch(connection, "DELETE", `/rest/api/2/issueLink/${encodeURIComponent(String(link.id))}`, options);
 }
 
 export function resolveJiraColumn(columns: JiraColumn[], status: unknown): JiraColumn | null {
@@ -516,11 +587,32 @@ export function resolveJiraColumn(columns: JiraColumn[], status: unknown): JiraC
   return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
+// The issue with every child in its sub-tasks, since Jira's subtasks field holds only Sub-Task issues.
 export async function readJiraIssue(connection: JiraConnection, key: unknown, options?: JiraCallOptions): Promise<JiraIssue> {
   requireConnection(connection);
-  const issue = await jiraFetch(connection, "GET", `/rest/api/2/issue/${issueKey(key)}`, { ...options, query: { fields: ISSUE_FIELDS } });
+  const [issue, children] = await Promise.all([
+    jiraFetch(connection, "GET", `/rest/api/2/issue/${issueKey(key)}`, { ...options, query: { fields: ISSUE_FIELDS } }),
+    jiraChildren(connection, key, options),
+  ]);
   if (!isRecord(issue)) throw jiraError(502, "Jira returned no ticket");
-  return Issue.parse(issue);
+  const read = Issue.parse(issue);
+  const listed = new Set((read.fields.subtasks ?? []).map((item) => Nested.parse(item).key));
+  read.fields.subtasks = [...(read.fields.subtasks ?? []), ...children.filter((item) => !listed.has(Nested.parse(item).key))];
+  return read;
+}
+
+// shortcut: the first 100 children only, fine until an issue has more.
+async function jiraChildren(connection: JiraConnection, key: unknown, options?: JiraCallOptions): Promise<unknown[]> {
+  try {
+    const page = Page.parse(await jiraFetch(connection, "GET", "/rest/api/2/search/jql", {
+      ...options,
+      query: { jql: `parent = ${issueKey(key)} ORDER BY created ASC`, fields: "summary,status,issuetype", maxResults: 100 },
+    }));
+    return page.issues ?? [];
+  } catch {
+    // A site without the search still lists the issue's Sub-Tasks.
+    return [];
+  }
 }
 
 // The issue when the board's filter holds it, including done ones the board view leaves out.

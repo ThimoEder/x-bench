@@ -19,10 +19,15 @@ export interface ThreadSheetProps {
   onWorktree: (on: boolean) => void;
   onStarted: () => void;
   onCancel: () => void;
+  // Edits the prompt and model of a chat that starts later, in place of starting one. prompt is the text as edited
+  // before, or null for the ticket's brief, and onSave answers null for a prompt left as the brief.
+  edit?: { prompt: string | null; onSave: (prompt: string | null, picks: DraftPicks) => void };
 }
 
-export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPicks, onPick, worktree, onWorktree, onStarted, onCancel }: ThreadSheetProps) {
+export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPicks, onPick, worktree, onWorktree, onStarted, onCancel, edit }: ThreadSheetProps) {
   const [prompt, setPrompt] = useState<string | null>(null);
+  const [brief, setBrief] = useState("");
+  const edited = useRef(edit?.prompt ?? null);
   const [hidden, setHidden] = useState(0);
   // The ticket's own title, which names a new worktree.
   const [ticketTitle, setTicketTitle] = useState("");
@@ -39,7 +44,8 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
       .then((data) => {
         if (cancel) return;
         if (!isRecord(data) || typeof data.draft !== "string") throw new Error("Couldn't read the ticket");
-        setPrompt(data.draft);
+        setPrompt(edited.current ?? data.draft);
+        setBrief(data.draft);
         setHidden(typeof data.hidden === "number" ? data.hidden : 0);
         setTicketTitle(typeof data.title === "string" ? data.title : "");
       })
@@ -73,6 +79,10 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
   async function start() {
     const text = prompt?.trim();
     if (!text || busy) return;
+    if (edit) {
+      edit.onSave(text === brief.trim() ? null : text, picks);
+      return;
+    }
     setBusy(true);
     setError("");
     const choice = draftChoice(catalog, picks);
@@ -90,7 +100,7 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
 
   function pick(id: string, value: string) {
     setPicks((current) => withPick(catalog, current, id, value));
-    onPick(id, value);
+    if (!edit) onPick(id, value);
   }
 
   return (
@@ -109,7 +119,7 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
           start();
         }}
       >
-        <h2 id="thread-sheet-title">New chat</h2>
+        <h2 id="thread-sheet-title">{edit ? "Chat for this ticket" : "New chat"}</h2>
         <p className="sheet-copy">{title}</p>
         {hidden > 0 ? (
           <p className="thread-note">
@@ -135,7 +145,7 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
         {error ? <p className="sheet-error">{error}</p> : null}
         <div className="thread-foot">
           <fieldset className="thread-picks" disabled={busy}>
-            <BranchMenu
+            {edit ? null : <BranchMenu
               call={call}
               cwd={place.cwd}
               unscoped
@@ -144,7 +154,7 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
               onOpenFolder={(next) => {
                 if (next) setPlace({ cwd: next, worktree: { on: false, gitRef: "" } });
               }}
-            />
+            />}
             <span className="thread-model">
               {composerOptions(catalog, picks).map((option) => (
                 <OptionMenu
@@ -159,7 +169,7 @@ export function ThreadSheet({ cwd, taskId, title, call, catalog, picks: firstPic
           </fieldset>
           <button type="button" className="text-button" disabled={busy} onClick={onCancel}>Cancel</button>
           <button type="submit" className="primary" disabled={busy || !prompt?.trim()}>
-            {busy ? "Starting…" : "Start chat"}
+            {edit ? "Save" : busy ? "Starting…" : "Start chat"}
           </button>
         </div>
       </form>

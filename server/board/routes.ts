@@ -54,7 +54,7 @@ export function boardServices(host: Host): BoardRouteServices {
       if (!host.browser.view().available) throw Object.assign(new Error("Open the board here from X Bench's desktop app"), { status: 503 });
       return host.browser.call("openBoardPage", { ...page });
     },
-    async openThread({ cwd: folder, ticket, picks, prompt }) {
+    async openThread({ cwd: folder, ticket, picks, prompt, note }) {
       // The thread runs on the model its sheet picked, and starts in the background: the desk and the
       // surface stay as they are, and the host sends the prompt.
       const provider = (picks.provider ? providers.get(picks.provider) : null) ?? providers.defaultProvider();
@@ -68,7 +68,7 @@ export function boardServices(host: Host): BoardRouteServices {
         ...(picks.model ? { model: picks.model } : {}),
         ...(picks.effort ? { effort: picks.effort } : {}),
         mode: providers.defaultMode(provider),
-        rules: sessionRules(folder, ticket),
+        rules: [sessionRules(folder, ticket), note].filter(Boolean).join("\n\n"),
       });
       const title = stripHidden(ticket.title);
       providers.remember(session, provider, title);

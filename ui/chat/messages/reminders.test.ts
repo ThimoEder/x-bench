@@ -128,3 +128,11 @@ test("a task notification inside a system reminder still becomes a chip", () => 
     notice: { title: "Task failed", tone: "fail", detail: "npm test" },
   });
 });
+
+test("a queue run's event is a line of its own, and stays out of the message", () => {
+  const finished = userMessageView('<x-bench-queue-event kind="finished">Ticket 652, "A", is finished: its pull request is open.</x-bench-queue-event>');
+  assert.deepEqual(finished, { spoken: "", notice: { title: "Ticket finished", tone: "ok", detail: 'Ticket 652, "A", is finished: its pull request is open.' }, harnessOnly: true });
+  assert.deepEqual(userMessageView('<x-bench-queue-event kind="failed">Ticket 3 did not start: no git</x-bench-queue-event>').notice, { title: "Ticket did not start", tone: "fail", detail: "Ticket 3 did not start: no git" });
+  assert.equal(userMessageView('<x-bench-queue-event kind="other">Something</x-bench-queue-event>').notice?.title, "Queue run");
+  assert.equal(userMessageView("How does <x-bench-queue-event> work?").spoken, "How does <x-bench-queue-event> work?");
+});

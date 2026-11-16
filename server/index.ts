@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import { GrokProvider } from "../bridge/grok/provider.ts";
 import { ClaudeProvider } from "../bridge/claude/provider.ts";
 import { ChatGptProvider } from "../bridge/chatgpt/provider.ts";
@@ -33,6 +34,7 @@ import { createUpgradeRouter } from "./providers/upgrade.ts";
 import { createLaunchToken, injectToken, removeTokenFile, writeTokenFile } from "./launchToken.ts";
 import { createHostSak } from "./board/sak/sakServe.ts";
 import { createTaskSuggestions } from "./board/taskSuggestions.ts";
+import { createArchiveOffers } from "./board/archiveOffer.ts";
 import { createAppSettings } from "./settings/appSettings.ts";
 import { createBrowser } from "./browser/browser.ts";
 import { createHostTools } from "./mcp/mcp.ts";
@@ -64,6 +66,7 @@ for (const [file, fields] of [[paths.sak, ["token"]], [paths.jira, ["token"]], [
 const token = createLaunchToken();
 const tokenPath = paths.launchToken(port);
 const suggestions = createTaskSuggestions(paths.suggestions);
+const archiveOffers = createArchiveOffers(paths.archiveOffers);
 const appSettings = createAppSettings(paths.appSettings);
 const browser = createBrowser(paths.browserPages);
 const simulator = createSimulator({ logDir: paths.simulatorLogs });
@@ -74,7 +77,7 @@ const folders: ChatFolders = {
   projectOf: (sessionId) => app.chatFolders.projectOf(sessionId),
   move: (cwd, sessionIds, name) => app.chatFolders.move(cwd, sessionIds, name),
 };
-const hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, browser, simulator, builds, devices, folders, routines: () => app.routineTools, board: (...request) => app.boardCall(...request) }), { builder: builderFolder(paths.chatHome) });
+const hostTools = createHostTools(hostToolGroups({ sessionOf: (id) => providers.getSession(id), setPlan: (id, entries) => providers.forSession(id).setPlan(id, entries), planTool: () => appSettings.read().planTool, suggestions, archiveOffers, browser, simulator, builds, devices, folders, routines: () => app.routineTools, queues: () => app.queues, board: (...request) => app.boardCall(...request), ticketStarts: () => app.ticketStarts }), { builder: builderFolder(paths.chatHome) });
 const sessionTools = hostTools.sessionTools({ port, token });
 
 const grok = new GrokProvider({
@@ -95,6 +98,7 @@ const sak = createHostSak(paths.sak);
 // The settings page can change it while the host runs, so it is read again each time it matters.
 // The index keeps each thread's model, effort and permission mode, which a load comes back without.
 const claude = new ClaudeProvider({
+  ...claudeAdapter(),
   sessionTools,
   hostPlans: () => appSettings.read().planTool,
   readSettings: () => claudeSettings.read(),
@@ -111,6 +115,11 @@ const claude = new ClaudeProvider({
   saveSideAnswer: (sessionId, entry) => appendBtwHistory(ownBtwDir(sessionId, paths.btw), entry),
   clearSideHistory: (sessionId) => clearBtwHistory(ownBtwDir(sessionId, paths.btw)),
 });
+// The browser tests name a stand-in for the Claude adapter in X_BENCH_CLAUDE_ADAPTER: a JSON array of the command and its arguments.
+function claudeAdapter(): { command?: string; args?: string[] } {
+  const [command, ...args] = z.array(z.string()).parse(JSON.parse(process.env.X_BENCH_CLAUDE_ADAPTER || "[]"));
+  return command ? { command, args } : {};
+}
 // ChatGPT runs through the installed codex, with the login codex keeps in its own home folder. The index keeps
 // each session's preset, which Codex forgets when a session loads again.
 const chatgpt = new ChatGptProvider({
@@ -154,6 +163,7 @@ const app = createApp({
   // The folder new sessions start in. The packaged app starts the host in home.
   cwd: process.cwd(),
   suggestions,
+  archiveOffers,
   browser,
   simulator,
   builds,
@@ -194,6 +204,7 @@ server.listen(port, "127.0.0.1", () => {
   void sak.sync();
   void remote.startIfEnabled();
   tick("routines", app.routines.tick);
+  tick("queues", app.queues.tick);
 });
 
 // A throw inside a timer would end the host. It is logged and the next tick runs.
@@ -212,7 +223,10 @@ turnTimer.unref();
 // Usage from elsewhere (a terminal, the web, another machine) reaches an open page within five minutes.
 const usageTimer = setInterval(() => tick("usage", app.pollUsage), 5 * 60_000);
 usageTimer.unref();
-const routineTimer = setInterval(() => tick("routines", app.routines.tick), 30_000);
+const routineTimer = setInterval(() => {
+  tick("routines", app.routines.tick);
+  tick("queues", app.queues.tick);
+}, 30_000);
 routineTimer.unref();
 
 // remote is true for a request the remote listener checked and rewrote. Its page goes out without the launch token.
@@ -355,6 +369,7 @@ async function shutdown() {
   };
   await step("quiet volume", () => quietVolume.restoreAll());
   await step("routines", () => app.routines.stop());
+  await step("queues", () => app.queues.stop());
   await step("sak", () => sak.close());
   await step("simulator", () => simulator.close());
   await step("builds", () => builds.close());

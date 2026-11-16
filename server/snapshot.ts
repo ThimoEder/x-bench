@@ -10,6 +10,7 @@ import type { ShellView } from "./terminal/terminal.ts";
 import type { GoneFolder } from "./folder/goneFolder.ts";
 import type { RoutinesView } from "./routines/routineScheduler.ts";
 import type { Wait } from "./needs/needsYou.ts";
+import type { QueueView } from "./queue/queueRunner.ts";
 
 export type { AccountUsage };
 
@@ -41,6 +42,8 @@ export interface Snapshot {
   terminals: Record<string, ShellView[]>;
   remote: RemoteState;
   routines: RoutinesView;
+  // Every queue run of a parent ticket's sub-tickets, on any host of this home.
+  queues: QueueView[];
   // Settings of the app that the host acts on. desktop is false in a browser tab's host, which has no app to keep
   // the Mac awake.
   app: { desktop: boolean; keepAwake: boolean; planTool: boolean };
@@ -86,11 +89,12 @@ export type ProviderUsage = AccountUsage & { provider: string; label: string };
 
 // An open session with the title the catalog knows for it, the provider that runs it, and the follow-up
 // tasks its agent suggested.
-export type OpenSession = PresentedSession & { title: string | null; provider: string; suggestions: TaskSuggestion[]; folderGone?: GoneFolder };
+export type OpenSession = PresentedSession & { title: string | null; provider: string; suggestions: TaskSuggestion[]; archiveOffer?: true; folderGone?: GoneFolder };
 
 export type { BrowserView, DeviceFocus, ShellView, TaskSuggestion };
 export type { RoutinesView, Wait };
 export type { RoutineView, RoutineRunView, RunState } from "./routines/routineScheduler.ts";
+export type { QueueView, QueueItemView, ItemState } from "./queue/queueRunner.ts";
 
 export type Surface = "builder" | "chat";
 

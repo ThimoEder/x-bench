@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fields, maybe } from "../../../bridge/lenient.ts";
 import { BOARD_TEXT_RULE, clip } from "../boardText.ts";
 import type { BoardSettings } from "../boardSettings.ts";
-import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, oneLine, reviewRule, shareRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
+import { attachRule, BOARD_TOOLS, commentRule, createRule, doneRule, editRule, fileRule, movesFor, oneLine, reviewRule, shareRule, startChatRule, startRule, ruleText, toolsRule, type BoardTicket } from "../sharedRules.ts";
 import { isHexId, ticketId } from "../ticketId.ts";
 
 // A Trello list the board shows as a column.
@@ -79,6 +79,7 @@ function trelloRules(binding: TrelloBinding, ticket: BoardTicket | null | undefi
     ...reviewRule(moves.review),
     fileRule("Trello shows it on the card."),
     attachRule(),
+    startChatRule(),
     BOARD_TEXT_RULE,
     doneRule(moves.done),
     shareRule(),

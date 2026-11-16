@@ -86,9 +86,11 @@ export interface Linked {
   status: unknown;
   done: boolean;
   kind: string;
+  // The kind that removes this relation from the open ticket, when the board writes it.
+  relation: string | null;
 }
 
-type Flag = keyof Omit<BoardCapabilities, "moves" | "conditionalFetch" | "assigneeLabel" | "badge">;
+type Flag = keyof Omit<BoardCapabilities, "moves" | "conditionalFetch" | "assigneeLabel" | "badge" | "relations">;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -257,6 +259,12 @@ export function canDo(board: BoardView | null, flag: Flag): boolean {
   return isRecord(board?.capabilities) && board.capabilities[flag] === true;
 }
 
+// The relation kinds a ticket takes on this board.
+export function relationKinds(board: BoardView | null): string[] {
+  const kinds = isRecord(board?.capabilities) ? board.capabilities.relations : null;
+  return Array.isArray(kinds) ? kinds.filter((kind): kind is string => typeof kind === "string") : [];
+}
+
 export function transitions(board: BoardView | null): boolean {
   return isRecord(board?.capabilities) && board.capabilities.moves === "transitions";
 }
@@ -309,7 +317,8 @@ export function linkedList(value: unknown): Linked[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item: unknown) => {
     if (!isRecord(item) || item.id === undefined || item.id === null) return [];
-    return [{ id: item.id, title: textOf(item.title), status: item.status ?? null, done: item.done === true, kind: textOf(item.kind) }];
+    const relation = typeof item.relation === "string" && item.relation ? item.relation : null;
+    return [{ id: item.id, title: textOf(item.title), status: item.status ?? null, done: item.done === true, kind: textOf(item.kind), relation }];
   });
 }
 

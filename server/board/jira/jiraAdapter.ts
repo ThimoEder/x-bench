@@ -15,6 +15,7 @@ import {
   addJiraComment,
   addJiraFile,
   changeJiraLabel,
+  changeJiraRelation,
   createJiraIssue,
   deleteJiraComment,
   deleteJiraFile,
@@ -62,9 +63,9 @@ export const jiraCapabilities: BoardCapabilities = {
   priority: true,
   subtasks: true,
   checklists: false,
-  relations: false,
+  relations: ["parent", "subtask", "blocks", "blocked_by", "relates", "duplicates", "duplicated_by"],
   commentEdits: true,
-  embedsByName: true,
+  wikiMarkup: true,
   signedInPages: false,
   archives: false,
   assigneeLabel: "Assignee",
@@ -152,7 +153,14 @@ export function jiraAdapter(services: BoardServices): BoardAdapter {
     },
     checkItem: noChecklists,
     addCheckItem: noChecklists,
-    changeRelation: null,
+    async changeRelation(taskId, otherId, kind, attach) {
+      // A flipped kind such as blocked_by arrives with the open ticket as otherId, so either ticket on a bound board will do.
+      const located = await locate(services, taskId).catch((error: unknown) => {
+        if (isRecord(error) && error.status === 404) return locate(services, otherId);
+        throw error;
+      });
+      await changeJiraRelation(located.connection, taskId, otherId, kind, attach, fetchOptions);
+    },
     files: {
       async list(taskId) {
         return listJiraFiles(connection(), taskId, fetchOptions);

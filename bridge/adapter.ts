@@ -123,7 +123,9 @@ export abstract class AdapterClient extends AcpClient {
       const event = translated.event;
       const tail = this.sessionMap.get(sessionId)?.transcript.at(-1);
       const startsThought = event.type === "chunk" && event.role === "thought" && !(tail?.type === "thought" && tail.streaming);
-      if (startsThought && event.at === undefined) event.at = this.quietSince.get(sessionId) ?? Date.now();
+      // session/load replays a thought without the time it took, and the clock here would measure the replay.
+      if (event.type === "chunk" && startsThought && this.replaying.has(sessionId)) event.untimed = true;
+      else if (startsThought && event.at === undefined) event.at = this.quietSince.get(sessionId) ?? Date.now();
       this.quietSince.set(sessionId, Date.now());
     }
     return translated;

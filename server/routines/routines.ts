@@ -2,13 +2,12 @@
 // Every host on the same home reads and writes it. The page edits it through /api/routines.
 
 import { randomBytes } from "node:crypto";
-import path from "node:path";
 import { z } from "zod";
 import { listOf } from "../../bridge/lenient.ts";
 import { httpError } from "../http.ts";
 import { issueText } from "../bodies.ts";
 import { withFileLock } from "../../bridge/fileLock.ts";
-import { fileStamp, loadDurable, saveDurable } from "../jsonFile.ts";
+import { watchedJson } from "../jsonFile.ts";
 import { parseSchedule, type Schedule } from "./routineSchedule.ts";
 
 export const ROUTINE_STARTS = ["worktree", "folder"] as const;
@@ -165,21 +164,12 @@ export interface RoutineStore {
 }
 
 export function createRoutineStore(file: string, now: () => Date = () => new Date()): RoutineStore {
-  let cached: { stamp: string; value: FileState } | null = null;
-  let seenStamp = fileStamp(file);
+  const json = watchedJson<FileState>(file, parse, { routines: [] }, "keep routines");
+  const read = json.read;
   const listeners = new Set<() => void>();
 
-  function read(): FileState {
-    const stamp = fileStamp(file);
-    if (cached?.stamp !== stamp) cached = { stamp, value: loadDurable(file, parse, { routines: [] }) };
-    return cached.value;
-  }
-
   function write(state: FileState) {
-    const saved = saveDurable(file, `${JSON.stringify(state, null, 2)}\n`, parse);
-    cached = null;
-    if (!saved) throw new Error(`${path.basename(file)} does not read. Fix or remove it to keep routines.`);
-    seenStamp = fileStamp(file);
+    json.write(state);
     for (const listener of listeners) listener();
   }
 
@@ -246,12 +236,7 @@ export function createRoutineStore(file: string, now: () => Date = () => new Dat
         return true;
       });
     },
-    changedOnDisk() {
-      const stamp = fileStamp(file);
-      if (stamp === seenStamp) return false;
-      seenStamp = stamp;
-      return true;
-    },
+    changedOnDisk: json.changedOnDisk,
     onChange(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

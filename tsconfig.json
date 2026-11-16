@@ -24,7 +24,8 @@
     "server",
     "ui",
     "types",
-    "vite.config.ts"
+    "vite.config.ts",
+    "playwright.config.ts"
   ],
   "exclude": [
     "types/audio-worklet.d.ts"

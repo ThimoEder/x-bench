@@ -4,11 +4,10 @@
 // the run. It is a separate file from routines.json, so these writes never overwrite an edit saved on another host.
 
 import { randomBytes } from "node:crypto";
-import path from "node:path";
 import { z } from "zod";
 import { listOf } from "../../bridge/lenient.ts";
 import { pidAlive, withFileLock } from "../../bridge/fileLock.ts";
-import { fileStamp, loadDurable, saveDurable } from "../jsonFile.ts";
+import { watchedJson } from "../jsonFile.ts";
 
 export const RUN_TRIGGERS = ["schedule", "catch-up", "manual"] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
@@ -108,23 +107,11 @@ export interface RoutineRunStore {
 }
 
 export function createRoutineRunStore(file: string): RoutineRunStore {
-  let cached: { stamp: string; value: Entries } | null = null;
-  let seenStamp = fileStamp(file);
+  const json = watchedJson(file, parse, {}, "keep the routine history");
+  const read = json.read;
+  const write = (entries: Entries) => json.write({ routines: entries });
   // The session ids of the file as last read, rebuilt only when it changes.
   let known: { entries: Entries; ids: Set<string> } | null = null;
-
-  function read(): Entries {
-    const stamp = fileStamp(file);
-    if (cached?.stamp !== stamp) cached = { stamp, value: loadDurable(file, parse, {}) };
-    return cached.value;
-  }
-
-  function write(entries: Entries) {
-    const saved = saveDurable(file, `${JSON.stringify({ routines: entries }, null, 2)}\n`, parse);
-    cached = null;
-    if (!saved) throw new Error(`${path.basename(file)} does not read. Fix or remove it to keep the routine history.`);
-    seenStamp = fileStamp(file);
-  }
 
   // The scheduling host and a host that runs a routine by hand write this file, so each change reads and writes it
   // under a lock.
@@ -189,11 +176,6 @@ export function createRoutineRunStore(file: string): RoutineRunStore {
       if (known?.entries !== entries) known = { entries, ids: new Set(Object.values(entries).flatMap((entry) => entry.sessions)) };
       return known.ids;
     },
-    changedOnDisk() {
-      const stamp = fileStamp(file);
-      if (stamp === seenStamp) return false;
-      seenStamp = stamp;
-      return true;
-    },
+    changedOnDisk: json.changedOnDisk,
   };
 }

@@ -148,11 +148,11 @@ test("a comment is Markdown, and a picture named the way Jira writes it shimmers
   let answer: (data: unknown) => void = noop;
   const { container, root } = await mount({
     detail: {
-      task: { id: "APP-1", title: "Ship it", description: "Seen here: !shot.png|width=300!", revision: 1 },
+      task: { id: "APP-1", title: "Ship it", description: "h2. Where\nSeen here: !shot.png|width=300!", revision: 1 },
       comments: [{ id: "1", body: "**Fixed** in ![after](/api/files/9)" }],
       links: [],
     },
-    board: { provider: "jira", columns: [], tasks: [], capabilities: { embedsByName: true } },
+    board: { provider: "jira", columns: [], tasks: [], capabilities: { wikiMarkup: true } },
     call: (path) => {
       calls.push(path);
       if (!path.endsWith("/files")) return Promise.resolve({});
@@ -172,6 +172,7 @@ test("a comment is Markdown, and a picture named the way Jira writes it shimmers
   const sources = [...container.querySelectorAll(".ticket-prose img")].map((image) => image.getAttribute("src"));
   assert.deepEqual(sources, ["/api/board/tasks/APP-1/files/10001", "/api/board/tasks/APP-1/files/9"]);
   assert.equal(container.querySelector(".ticket-comment-body strong")?.textContent, "Fixed");
+  assert.equal(container.querySelector(".ticket-prose h2")?.textContent, "Where");
   act(() => root.unmount());
 });
 

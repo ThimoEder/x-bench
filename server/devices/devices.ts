@@ -104,9 +104,7 @@ export function createDevices(options: DevicesOptions = {}) {
     const known = avdNames.get(serial);
     if (known && now() - known.at < 30_000) return known.name;
     try {
-      const { stdout } = await run(adb, ["-s", serial, "emu", "avd", "name"], { timeoutMs: 5000 });
-      const line = stdout.toString("utf8").split("\n")[0]?.trim() ?? "";
-      const name = line && line !== "OK" ? line.replaceAll("_", " ") : "";
+      const name = (await readAvdName(run, adb, serial)).replaceAll("_", " ");
       avdNames.set(serial, { name, at: now() });
       return name;
     } catch {
@@ -139,6 +137,15 @@ export function createDevices(options: DevicesOptions = {}) {
 
 function fail(message: string, status: number): DeviceError {
   return Object.assign(new Error(message), { status });
+}
+
+// An emulator's AVD name, "" when it tells none. The console answers nothing when its token file is a symlink,
+// so the boot property stands in.
+export async function readAvdName(run: RunCommand, adb: string, serial: string): Promise<string> {
+  const first = (stdout: Buffer) => stdout.toString("utf8").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  const name = first((await run(adb, ["-s", serial, "emu", "avd", "name"], { timeoutMs: 5000 })).stdout);
+  if (name && name !== "OK") return name;
+  return first((await run(adb, ["-s", serial, "shell", "getprop ro.boot.qemu.avd_name; getprop ro.kernel.qemu.avd_name"], { timeoutMs: 5000 })).stdout);
 }
 
 export function defaultAdb(): string {

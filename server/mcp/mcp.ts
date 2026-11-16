@@ -45,7 +45,7 @@ export interface McpGroup {
   // A line for the session's system prompt, since harnesses hide MCP tools until the agent searches for them.
   instructions: string;
   tools: McpTool[];
-  // Needs a builder chat: it drives a dock tab or works the folder's board.
+  // Needs a builder chat: it drives a dock tab, works the folder's board or raises a row only the builder draws.
   builderOnly?: boolean;
   // A group behind a setting. A chat gets it when this is true as the chat opens.
   enabled?: () => boolean;

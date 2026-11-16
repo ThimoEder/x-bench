@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SessionIndexConnection } from "@agentclientprotocol/claude-agent-acp/dist/session-index/connection.js";
+import { SessionIndexConnection } from "@agentclientprotocol/claude-agent-acp/dist/v1/session-index.js";
 
 test("claude: deleting a session removes its transcript", async () => {
   const configDir = mkdtempSync(path.join(os.tmpdir(), "x-bench-claude-config-"));

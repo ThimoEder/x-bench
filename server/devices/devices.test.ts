@@ -72,17 +72,18 @@ test("png size is read from the header", () => {
   assert.equal(pngSize(Buffer.from("nope")), null);
 });
 
-test("only a listed device that is running is ready for the Device tab", async () => {
+test("only a listed device that is running is ready for the Device tab, named by its boot property when the console is silent", async () => {
   const devices = createDevices({
     adb: "adb",
     xcrun: "xcrun",
     run: async (_command, args) => {
       if (args.includes("booted")) return { stdout: Buffer.from(JSON.stringify({ devices: {} })) };
       if (args.includes("emu")) return { stdout: Buffer.from("") };
+      if (args.includes("shell")) return { stdout: Buffer.from("Pixel_9\n\n") };
       return { stdout: Buffer.from("List of devices attached\nemulator-5554          device model:sdk_gphone64_arm64\n192.168.1.9:5555       offline\n") };
     },
   });
-  assert.deepEqual(await devices.ready("emulator-5554"), { id: "emulator-5554", platform: "android", name: "Android emulator 5554", state: "device", os: "", booted: true });
+  assert.deepEqual(await devices.ready("emulator-5554"), { id: "emulator-5554", platform: "android", name: "Pixel 9", state: "device", os: "", booted: true });
   await assert.rejects(devices.ready("nope"), /not available/);
   await assert.rejects(devices.ready(IPHONE), /not available/);
   await assert.rejects(devices.ready("192.168.1.9:5555"), /not available/);

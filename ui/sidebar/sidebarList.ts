@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DragEvent, RefObject } from "react";
-import type { ProviderView, SidebarProject, SidebarSession, TicketLink } from "../../server/snapshot.ts";
+import type { ProviderView, QueueView, SidebarProject, SidebarSession, TicketLink } from "../../server/snapshot.ts";
 import { isRecord } from "../../bridge/lenient.ts";
 import { dockPlaces } from "../dock/dockMemory.ts";
 import type { WorktreeBody, WorktreeGuard } from "../git/WorktreeDiscard.tsx";
@@ -33,6 +33,8 @@ export interface SidebarList {
   unread: Set<string>;
   openIds: Set<string>;
   tickets: Record<string, TicketLink[]> | undefined;
+  // The queue runs, each drawn in its folder.
+  queues?: QueueView[] | undefined;
   providers: ProviderView[];
   providerShown: SidebarProvider;
   pattern: RegExp | null;

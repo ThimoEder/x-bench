@@ -21,6 +21,7 @@ import {
   TypeIcon,
 } from "./boardIcons.tsx";
 import { ChecklistSection, saveQueue } from "./Checklist.tsx";
+import { RelationsSection } from "./Relations.tsx";
 import {
   assigneeLabel,
   canDo,
@@ -33,7 +34,6 @@ import {
   moveList,
   isSavedTask,
   keyOf,
-  linkedList,
   messageOf,
   nodeOf,
   people,
@@ -50,7 +50,6 @@ import {
   type BoardLabel,
   type BoardView,
   type DetailTask,
-  type Linked,
   type OpenDetail,
   type BoardMove,
   type BoardPerson,
@@ -77,6 +76,8 @@ export interface TicketDetailProps {
   onManageLabels: () => void;
   onOpenSession: (sessionId: string) => void;
   onThread: () => void;
+  // Starts a run of the ticket's sub-tickets. Left out where the ticket has none.
+  onQueue?: (() => void) | undefined;
   onUnlink: (sessionId: string) => Promise<void>;
   onLink: (sessionId: string) => Promise<void>;
   // Moves the ticket. needs are the fields the move asks for; the board collects them first.
@@ -155,6 +156,7 @@ export function TicketDetail({
   onReload,
   onOpenSession,
   onThread,
+  onQueue,
   onUnlink,
   onLink,
   onMove,
@@ -180,7 +182,7 @@ export function TicketDetail({
   const [moves, setMoves] = useState<BoardMove[] | null>(null);
   const [comments, setComments] = useState<TicketComment[]>(detail.comments || []);
   const [commentsFrom, setCommentsFrom] = useState(detail.comments);
-  const prose = useTicketProse(task.id, [textOf(task.description), textOf(task.note), ...comments.map((item) => textOf(item.body))], call, canDo(board, "embedsByName"));
+  const prose = useTicketProse(task.id, [textOf(task.description), textOf(task.note), ...comments.map((item) => textOf(item.body))], call, canDo(board, "wikiMarkup"));
   const [comment, setComment] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkId, setLinkId] = useState("");
@@ -395,9 +397,6 @@ export function TicketDetail({
   const typeName = textOf(task.typeName);
   const canLabel = canDo(board, "labels");
   const attached = new Set((task.labels || []).map((label) => String(label.id)));
-  const subtasks = linkedList(task.subtasks);
-  const related = linkedList(task.related);
-  const doneSubtasks = subtasks.filter((item) => item.done).length;
   const assignees = people(task.assignees);
   const due = dueState(textOf(task.due) || null, task.dueDone === true, now);
   const threads = detail.links || [];
@@ -584,32 +583,7 @@ export function TicketDetail({
                 onSave={saveEdit}
               />
             ) : null}
-            {related.length ? (
-              <section>
-                <h3 className="ticket-h">Linked tickets</h3>
-                <div className="ticket-rows">
-                  {related.map((item) => (
-                    <LinkedRow key={`${item.kind}-${String(item.id)}`} board={board} item={item} onOpen={onOpenTicket} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-            {canDo(board, "subtasks") && subtasks.length ? (
-              <section>
-                <h3 className="ticket-h">
-                  Sub-tasks
-                  <span className="ticket-count">{`${doneSubtasks} of ${subtasks.length} done`}</span>
-                  <span className="ticket-progress" aria-hidden="true">
-                    <i style={{ width: `${Math.round((doneSubtasks / subtasks.length) * 100)}%` }} />
-                  </span>
-                </h3>
-                <div className="ticket-rows">
-                  {subtasks.map((item) => (
-                    <LinkedRow key={String(item.id)} board={board} item={item} subtask onOpen={onOpenTicket} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
+            <RelationsSection board={board} task={task} call={call} onChanged={(next) => onChanged(next)} onOpen={onOpenTicket} />
             {canDo(board, "checklists")
               ? checklistsOf(task.checklists).map((list) => (
                   <ChecklistSection key={list.id} taskId={task.id} list={list} call={call} queue={checklistQueue} onChanged={(next) => onChanged(next)} onError={setError} />
@@ -788,6 +762,11 @@ export function TicketDetail({
                 <PlusIcon />
                 New chat
               </button>
+              {onQueue ? (
+                <button type="button" className="text-button ticket-run-queue" data-testid="run-queue" disabled={busy} onClick={onQueue}>
+                  Run sub-tickets
+                </button>
+              ) : null}
             </div>
             {created || updated ? (
               <p className="ticket-stamp is-wide">
@@ -891,22 +870,6 @@ function TextSection({ title, field, value, prose, empty, editing, draft, rows, 
         <button type="button" className="ticket-empty" onClick={() => onStart(field)}>{empty}</button>
       )}
     </section>
-  );
-}
-
-function LinkedRow({ board, item, subtask, onOpen }: { board: BoardView; item: Linked; subtask?: boolean; onOpen: (taskId: unknown) => void }) {
-  const column = columnFor(board.columns, item.status);
-  const key = cardBadge(board, { id: item.id });
-  const tone = column ? columnTone(column) : item.done ? "var(--status-done)" : "var(--status-open)";
-  return (
-    <button type="button" className="ticket-row" onClick={() => onOpen(item.id)}>
-      {subtask ? (canDo(board, "types") ? <TypeIcon type="subtask" /> : null) : <span className="ticket-rel">{item.kind}</span>}
-      <span className="ticket-row-key">{key}</span>
-      <span className="ticket-row-title">{item.title}</span>
-      {item.status !== null ? (
-        <span className="ticket-state" style={{ "--tone": tone }}>{nodeOf(column?.title ?? item.status)}</span>
-      ) : null}
-    </button>
   );
 }
 

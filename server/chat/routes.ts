@@ -23,7 +23,6 @@ import type { Host, SwitchRun } from "../app.ts";
 import type { GoneFolder } from "../folder/goneFolder.ts";
 import { route, type Route } from "../router.ts";
 import { Cwd, Maybe, SessionBody, RequestId, SessionId, Text } from "../bodies.ts";
-import { latestMain } from "../git/branch.ts";
 import { appWorktreeOf, removeChatWorktree, worktreeChanges } from "../git/worktree.ts";
 import { deskGuard } from "../routeGuard.ts";
 import { contextWindows } from "./context.ts";
@@ -53,7 +52,7 @@ export function sessionRoutes(host: Host): Route[] {
   const switchDeps: SwitchDeps = {
     providers,
     ensureProvider,
-    rules: (cwd) => (canonicalCwd(cwd) === canonicalCwd(paths.chatHome) ? undefined : sessionRules(cwd)),
+    rules: (cwd, chatId) => (canonicalCwd(cwd) === canonicalCwd(paths.chatHome) ? undefined : sessionRules(cwd, null, chatId)),
     windows: contextWindows,
     blocked(provider) {
       if (!providers.isEnabled(provider)) return `${provider.label} is off`;
@@ -407,7 +406,7 @@ export function sessionRoutes(host: Host): Route[] {
         // A builder session gets the folder's board rules again, for a harness that needs them on every load.
         // A chat whose folder came back lets go of its copy in the stand-in folder, which a load would return as it is.
         if (!gone && store.goneFolders.has(sessionId)) await provider.forgetSession(sessionId);
-        const session = gone ? await openToRead(provider, sessionId, gone) : await provider.loadSession(sessionId, next, builder ? { rules: sessionRules(next) } : {});
+        const session = gone ? await openToRead(provider, sessionId, gone) : await provider.loadSession(sessionId, next, builder ? { rules: sessionRules(next, null, sessionId) } : {});
         if (!session) throw new Error("Session did not load");
         if (session.status === "idle") clearSessionError(session.id);
         // The index keeps the folder that is gone, so the chat stays marked until it moves.
@@ -460,15 +459,14 @@ export function sessionRoutes(host: Host): Route[] {
         let next = to === "folder" ? canonicalCwd(path.resolve(body.cwd)) : String(gone.home);
         try {
           if (to === "worktree") {
-            const gitRef = await latestMain(next).catch(() => "HEAD");
             const listed = store.snapshot.projects.flatMap((project) => project.sessions).find((session) => session.id === sessionId);
-            next = (await createWorktree(next, gitRef, provider.id, { name: listed?.title || providers.catalogTitle(sessionId) || "" })).path;
+            next = (await createWorktree(next, "", provider.id, { name: listed?.title || providers.catalogTitle(sessionId) || "" })).path;
           }
           await ensureProvider(provider);
           // The harness loads a session once, so it lets go of the copy in the stand-in folder first.
           await provider.forgetSession(sessionId);
           provider.moveSession?.(sessionId, next);
-          const session = await provider.loadSession(sessionId, next, { rules: sessionRules(next) });
+          const session = await provider.loadSession(sessionId, next, { rules: sessionRules(next, null, sessionId) });
           if (!session) throw new Error("Session did not load");
           store.goneFolders.delete(sessionId);
           providers.remember(session, provider);
@@ -561,6 +559,11 @@ export function sessionRoutes(host: Host): Route[] {
           host.suggestions.dropSession(sessionId);
         } catch {
           // A suggestions file that does not read keeps the entry. The session is gone either way.
+        }
+        try {
+          host.archiveOffers.clear(sessionId);
+        } catch {
+          // The same holds for the offers file.
         }
         // Another chat can start in the worktree while the harness deletes this one.
         if (worktree) kept = [kept, await removeChatWorktree(worktree, sessionId, host.chatRows(), worktreeRoot, body.discard)].filter(Boolean).join(" ");

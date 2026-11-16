@@ -19,16 +19,18 @@ export function doneTicket(links: readonly TicketLink[] | undefined): TicketLink
   return rows.every((link) => statusKey(link.status) === "done") ? (rows.find((link) => link.cleanup) ?? null) : null;
 }
 
-// A row in the shelf once the chat's ticket moved from Review to Done: archive the chat, with the worktree it has to itself, or keep it.
+// A row in the shelf once the chat's ticket moved from Review to Done, or its agent offered it: archive the chat, with the worktree it has to itself, or keep it.
 export function TicketDone({ session, running, act }: TicketDoneProps) {
   const { tickets, projects, call } = useDesk();
   const [busy, setBusy] = useState<"" | "archive" | "keep">("");
   const discard = useWorktreeDiscard();
-  const link = doneTicket(tickets?.bySession?.[session.id]);
-  if (!link || running || session.archived) return discard.dialog;
+  const links = tickets?.bySession?.[session.id] ?? [];
+  const link = doneTicket(links);
+  const offered = Boolean(session.archiveOffer) && links.every((item) => statusKey(item.status) === "done");
+  if ((!link && !offered) || running || session.archived) return discard.dialog;
   const ownWorktree = projects.some((project) => project.sessions.some((item) => item.id === session.id && item.ownWorktree));
 
-  // The archive route clears the flag itself, after the archive went through.
+  // The archive route clears both flags itself, after the archive went through.
   async function answer(archive: boolean) {
     setBusy(archive ? "archive" : "keep");
     try {
@@ -36,7 +38,8 @@ export function TicketDone({ session, running, act }: TicketDoneProps) {
         const gone = ownWorktree ? await discard.guard("archive", (body) => act("/api/archive", body)) : await act("/api/archive", {}).then(() => true);
         if (gone) await act("/api/leave");
       } else {
-        await call("/api/board/links/cleanup", { sessionId: session.id }, "DELETE");
+        if (link) await call("/api/board/links/cleanup", { sessionId: session.id }, "DELETE");
+        if (session.archiveOffer) await act("/api/archive/keep");
       }
     } catch {
       // The banner shows what failed.
@@ -51,7 +54,7 @@ export function TicketDone({ session, running, act }: TicketDoneProps) {
         <path d="m3.5 8.3 3 3 6-6.6" />
       </svg>
       <span className="shelf-notice-text">
-        <b>{ticketNumber(link) ?? link.title}</b> · Done · {ownWorktree ? "Archive this chat and its worktree?" : "Archive this chat?"}
+        {link ? <><b>{ticketNumber(link) ?? link.title}</b> · Done</> : "Work done"} · {ownWorktree ? "Archive this chat and its worktree?" : "Archive this chat?"}
       </span>
       <button type="button" className="primary" disabled={Boolean(busy)} onClick={() => void answer(true)}>
         {busy === "archive" ? "Archiving…" : "Archive"}
